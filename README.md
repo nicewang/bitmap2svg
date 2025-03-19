@@ -1,1 +1,4 @@
-# kaggle_drawing_with_LLMs
+## Kaggle Competition: Drawing With LLMs
+* [Nice's Workspace](nice/README.md)
+* [Arishi's Workspace](arishi/README.md)
+* [Shared Sources](shared/README.md)
