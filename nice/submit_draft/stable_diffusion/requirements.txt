@@ -1,0 +1,10 @@
+# To install these requirements, run:
+# pip install -r -q requirements.txt 
+
+svgwrite
+cairosvg
+bitsandbytes
+git+https://github.com/openai/CLIP.git
+opencv-python
+scikit-image
+pillow
