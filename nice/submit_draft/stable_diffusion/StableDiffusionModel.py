@@ -72,7 +72,8 @@ class StableDiffusionModel:
         return svg, bitmap
 
     def predict(self, prompt: str) -> str:
-        svg, img = self.predict_impl(prompt)
+        # svg, img = self.predict_impl(prompt), but we don't need the bitmap image
+        svg, _ = self.predict_impl(prompt)
         return svg
     
     def set_config(self, config: dict):
