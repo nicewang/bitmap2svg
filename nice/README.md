@@ -6,3 +6,5 @@
 * QwQ-awq 32b with Prompt Engineering [Done]
 * Img -> SVG: PaliGemma + Stable Diffussion [Done]
 * Finetune with RL: ToDo
+
+### [Libs](libs_quick_start_demos/README.md)

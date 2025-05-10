@@ -1,1 +1,0 @@
-from bitmap2svg_core import convert

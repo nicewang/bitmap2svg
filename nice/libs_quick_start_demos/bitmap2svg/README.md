@@ -1,48 +1,6 @@
-## Version:0.1.0
-### 1. Introduction
-
-Convert a grayscale bitmap (2D numpy array) to SVG string
-### 2. Package Structure
-```
-bitmap2svg/
-├── bitmap2svg/
-│   ├── __init__.py
-│   └── cpp/
-│       ├── bitmap_to_svg.cpp
-│       ├── bindings.cpp
-├── pyproject.toml
-├── setup.py
-└── README.md
-```
-### 3. Install
-#### 3.1 Local Install
-* Way 1:
-
-```bash
-cd ${project_workspace}/bitmap2svg
-python setup.py build
-python setup.py install
-```
-* Way 2:
-
-```bash
-cd ${project_workspace}/bitmap2svg
-pip install --upgrade pybind11 setuptools wheel
-pip install -e .
-```
-* You can also upload it (and then install):
-
-```bash
-python setup.py sdist bdist_wheel
-twine upload dist/*
-``` 
-#### 3.2 Remote Install
-```bash
-pip install "git+https://github.com/Opensource-Nice-Arishi/kaggle_drawing_with_LLMs.git@main#subdirectory=nice/libs/bitmap2svg"
-
-```
-### 4. Quick Start
-* Demo Code:
+## [bitmap2svg](https://github.com/Opensource-Nice-Arishi/kaggle_drawing_with_LLMs/tree/bitmap2svg?tab=readme-ov-file)
+### [v0.1.0](https://github.com/Opensource-Nice-Arishi/kaggle_drawing_with_LLMs/tree/v0.1.0-bitmap2svg?tab=readme-ov-file)
+* [Demo Code](v0.1.0/quick_start_demo.py):
 
 ```Python
 import numpy as np
