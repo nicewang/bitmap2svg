@@ -1,5 +1,5 @@
 # bitmap2svg
-## Version: 0.1.0
+## Current Version: [0.1.0](https://github.com/Opensource-Nice-Arishi/kaggle_drawing_with_LLMs/tree/v0.1.0)
 ### 1. Introduction
 
 Convert a grayscale bitmap (2D numpy array) to SVG string
@@ -42,3 +42,4 @@ twine upload dist/*
 pip install git+https://github.com/Opensource-Nice-Arishi/kaggle_drawing_with_LLMs.git@v0.1.0
 
 ```
+## Historical Versions
