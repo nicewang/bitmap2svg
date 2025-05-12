@@ -9,8 +9,16 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(pybind11)
 
-find_package(PkgConfig REQUIRED)
-pkg_check_modules(POTRACE REQUIRED IMPORTED_TARGET potrace)
+find_library(POTRACE_LIBRARY NAMES potrace
+             HINTS /usr/lib/x86_64-linux-gnu)
+find_path(POTRACE_INCLUDE_DIR NAMES potracelib.h
+          HINTS /usr/include)
+
+if(POTRACE_LIBRARY AND POTRACE_INCLUDE_DIR)
+    include_directories(${POTRACE_INCLUDE_DIR})
+    target_link_libraries(bitmap2svg_cpp PRIVATE ${POTRACE_LIBRARY})
+else()
+    message(FATAL_ERROR "Could not find potrace library or header file.")
+endif()
 
 pybind11_add_module(bitmap2svg_cpp bitmap2svg/cpp/bindings.cpp)
-target_link_libraries(bitmap2svg_cpp PRIVATE PkgConfig::POTRACE)
