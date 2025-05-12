@@ -1,4 +1,4 @@
-name: Build Bitmap2SVG
+name: Build Bitmap2SVG Python package
 
 on:
   push:
@@ -11,20 +11,29 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v3
+    - name: Checkout code
+      uses: actions/checkout@v3
 
-      - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libpotrace-dev cmake pkg-config
-          pip install -U pip
-          pip install build numpy
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: "3.12"
 
-      - name: Build package
-        run: |
-          python -m build
+    - name: Install system dependencies (for potrace)
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y libpotrace-dev pkg-config
 
-      - name: Test import
-        run: |
+    - name: Upgrade pip and install build tools
+      run: |
+        python -m pip install --upgrade pip
+        python -m pip install build
+
+    - name: Build package
+      run: python -m build
+
+
+    - name: Test import
+      run: |
           pip install dist/*.whl
           python -c "import bitmap2svg; print(bitmap2svg.convert_image_to_svg.__doc__)"
