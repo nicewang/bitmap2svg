@@ -1,18 +1,26 @@
 #include <pybind11/pybind11.h>
-#include <pybind11/numpy.h>
-extern "C" const char* convert_bitmap_to_svg(int, int, const uint8_t*);
+#include <pybind11/stl.h>
+#include <pybind11/bytes.h>
+#include "bitmap_to_svg.cpp"
 
 namespace py = pybind11;
 
-PYBIND11_MODULE(bitmap2svg_core, m) {
-    m.def("convert", [](py::array_t<uint8_t> arr) {
-        py::buffer_info info = arr.request();
-        if (info.ndim != 2)
-            throw std::runtime_error("Only 2D grayscale images are supported");
+std::string convert_image_to_svg_pybind(int width, int height, py::bytes pixel_bytes, int channels) {
+    const char* pixels_ptr = pixel_bytes.c_str();
+    size_t size = py::len(pixel_bytes);
 
-        int height = info.shape[0];
-        int width = info.shape[1];
-        auto* data = static_cast<uint8_t*>(info.ptr);
-        return std::string(convert_bitmap_to_svg(width, height, data));
-    }, "Convert a grayscale bitmap (2D numpy array) to SVG string");
+    if (size != (size_t)width * height * channels) {
+         throw py::value_error("Pixel data size mismatch: expected " + std::to_string((size_t)width * height * channels) + ", got " + std::to_string(size));
+    }
+
+    const uint8_t* pixels = reinterpret_cast<const uint8_t*>(pixels_ptr);
+
+    return convert_image_to_svg_core(width, height, pixels, channels);
+}
+
+PYBIND11_MODULE(_tracer, m) {
+    m.doc() = "Pybind11 plugin for bitmap to SVG tracing.";
+
+    m.def("convert_image_to_svg", &convert_image_to_svg_pybind,
+          "Convert image pixels to SVG using Potrace.");
 }
