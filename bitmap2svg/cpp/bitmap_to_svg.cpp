@@ -6,11 +6,12 @@
 #include <cmath>
 #include <iomanip>
 #include <stdexcept>
+#include <cstdint>
 
 #include <potracelib.h>
 
 potrace_bitmap_t* create_potrace_bitmap(int width, int height, const uint8_t* pixels, int channels, const std::vector<uint8_t>& target_color, int threshold) {
-    potrace_bitmap_t* bm = potrace_bitmap_new(width, height); 
+    potrace_bitmap_t* bm = potrace_bitmap_new(width, height);
     if (!bm) return nullptr;
 
     for (int y = 0; y < height; ++y) {
@@ -37,12 +38,13 @@ potrace_bitmap_t* create_potrace_bitmap(int width, int height, const uint8_t* pi
 
 std::string path_to_svg_d(const potrace_path_t* path) {
     std::ostringstream d;
-    d << std::fixed << std::setprecision(3); 
+    d << std::fixed << std::setprecision(3);
 
     for (const potrace_path_t* subpath = path; subpath; subpath = subpath->next) {
         const potrace_curve_t* curve = &subpath->curve;
-        int n = curve->n; 
-        if (n == 0) continue; 
+        int n = curve->n;
+        if (n == 0) continue;
+
         d << "M " << curve->c[n - 1][2].x << "," << curve->c[n - 1][2].y;
 
         for (int i = 0; i < n; ++i) {
@@ -54,7 +56,7 @@ std::string path_to_svg_d(const potrace_path_t* path) {
                   << " " << curve->c[i][2].x << "," << curve->c[i][2].y;
             }
         }
-        d << " Z"; 
+        d << " Z";
     }
 
     return d.str();
@@ -63,7 +65,7 @@ std::string path_to_svg_d(const potrace_path_t* path) {
 
 std::string convert_image_to_svg_core(int width, int height, const uint8_t* pixels, int channels) {
     if (!pixels || width <= 0 || height <= 0 || (channels != 1 && channels != 3 && channels != 4)) {
-        return "<svg></svg>"; 
+        return "<svg></svg>";
     }
 
     std::ostringstream svg;
@@ -72,17 +74,17 @@ std::string convert_image_to_svg_core(int width, int height, const uint8_t* pixe
 
     if (channels == 1) {
         auto* bm = create_potrace_bitmap(width, height, pixels, channels, {}, 128);
-        if (!bm) return "<svg></svg>"; 
+        if (!bm) return "<svg></svg>";
 
         auto* param = potrace_param_default();
         if (!param) {
-             potrace_bitmap_delete(bm); 
-             return "<svg></svg>"; 
+             potrace_bitmap_delete(bm);
+             return "<svg></svg>";
         }
 
-        auto* st = potrace_trace(param, bm); 
+        auto* st = potrace_trace(param, bm);
 
-        if (st && st->status == POTRACE_STATUS_OK && st->plist) { 
+        if (st && st->status == POTRACE_STATUS_OK && st->plist) {
             svg << "<path d=\"" << path_to_svg_d(st->plist) << "\" fill=\"black\" stroke=\"none\" />\n";
         }
 
@@ -95,7 +97,7 @@ std::string convert_image_to_svg_core(int width, int height, const uint8_t* pixe
         for (int y = 0; y < height; ++y) {
             for (int x = 0; x < width; ++x) {
                 int offset = (y * width + x) * channels;
-                if (channels == 4 && pixels[offset + 3] < 128) continue; // 跳过透明度低的像素
+                if (channels == 4 && pixels[offset + 3] < 128) continue;
 
                 std::vector<uint8_t> color = {
                     pixels[offset], pixels[offset + 1], pixels[offset + 2]
@@ -106,16 +108,17 @@ std::string convert_image_to_svg_core(int width, int height, const uint8_t* pixe
 
         for (const auto& color : colors) {
             auto* bm = create_potrace_bitmap(width, height, pixels, channels, color, 0);
-            if (!bm) continue; 
+            if (!bm) continue;
 
             auto* param = potrace_param_default();
              if (!param) {
                 potrace_bitmap_delete(bm);
-                continue; 
+                continue;
+            }
 
-            auto* st = potrace_trace(param, bm); 
+            auto* st = potrace_trace(param, bm);
 
-            if (st && st->status == POTRACE_STATUS_OK && st->plist) { 
+            if (st && st->status == POTRACE_STATUS_OK && st->plist) {
                 std::ostringstream hex;
                 hex << "#" << std::hex << std::setfill('0');
                 for (uint8_t c : color) {
