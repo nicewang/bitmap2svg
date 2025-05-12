@@ -30,7 +30,9 @@ jobs:
         python -m pip install build
 
     - name: Build package
-      run: python -m build
+      run: |
+        export SKBUILD_NO_ISOLATE=1
+        python -m build
 
 
     - name: Test import
