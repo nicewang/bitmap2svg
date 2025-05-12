@@ -26,7 +26,10 @@ setuptools.setup(
     ext_modules=[
         setuptools.Extension(
             '_bitmap2svg_core',
-            ['cpp/bitmap2svg.cpp'],
+            [
+                'bitmap2svg/cpp/bitmap_to_svg.cpp',
+                'bitmap2svg/cpp/bindings.cpp'
+            ],
             include_dirs=[
                 '/usr/local/include',
                 '/usr/include',
