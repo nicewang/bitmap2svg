@@ -10,14 +10,26 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(pybind11)
 
-# Find potrace
+# Find potrace using find_package
 find_package(Potrace REQUIRED
-    HINTS ${CMAKE_INSTALL_PREFIX} /usr/lib /usr/lib/x86_64-linux-gnu /usr/local/lib
-    PATH_SUFFIXES include lib
+    HINTS
+        ${CMAKE_INSTALL_PREFIX}
+        /usr
+        /usr/local
+        /opt/local
+        /usr/lib
+        /usr/lib/x86_64-linux-gnu
+        /usr/local/lib
+    PATH_SUFFIXES
+        lib
+        lib64
+        cmake/Potrace
+        share/Potrace/cmake
+        Potrace/cmake
 )
 
 if(NOT Potrace_FOUND)
-    message(FATAL_ERROR "Could not find potrace library or header file.")
+    message(FATAL_ERROR "Could not find Potrace library. Please ensure it is installed and CMake can find it.")
 endif()
 
 # Add C++ extension module
@@ -35,6 +47,7 @@ set_target_properties(bitmap2svg_cpp PROPERTIES
 
 # Include paths and link libraries
 target_include_directories(bitmap2svg_cpp PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/bitmap2svg/cpp
     ${Potrace_INCLUDE_DIRS}
 )
 
