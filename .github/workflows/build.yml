@@ -24,12 +24,6 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y libpotrace-dev pkg-config
 
-    # - name: Check /usr/local/lib/pkgconfig/ for .pc files
-    #   run: ls /usr/local/lib/pkgconfig/*.pc
-
-    # - name: Search for files containing "potrace"
-    #   run: sudo find / -name "*potrace*" -print
-
     - name: Reinstall libpotrace-dev and check output
       run: |
         sudo apt-get remove --purge -y libpotrace-dev
@@ -44,6 +38,9 @@ jobs:
         python -m pip install --upgrade pip
         python -m pip install build scikit-build-core numpy pybind11 cmake ninja
 
+    - name: Clean build directory
+      run: rm -rf build
+
     - name: Build package
       run: |
         python -m build --no-isolation
@@ -52,3 +49,4 @@ jobs:
       run: |
         pip install dist/*.whl
         python -c "import bitmap2svg; print(bitmap2svg.convert_image_to_svg.__doc__)"
+        
