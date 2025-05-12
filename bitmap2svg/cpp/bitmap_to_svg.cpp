@@ -1,3 +1,5 @@
+#include "bitmap_to_svg.h"
+
 #include <string>
 #include <vector>
 #include <sstream>

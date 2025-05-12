@@ -3,10 +3,10 @@ name: Build Bitmap2SVG Python Package
 on:
   push:
     branches:
-      - bitmap2svg # Using the branch name from your provided file
+      - bitmap2svg
   pull_request:
     branches:
-      - bitmap2svg # Using the branch name from your provided file
+      - bitmap2svg
 
 jobs:
   build_wheels:
@@ -30,10 +30,10 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y potrace libpotrace-dev
 
-    # - name: Install Potrace (macOS)
-    #   if: matrix.os == 'macos-latest'
-    #   run: |
-    #     brew install potrace
+    - name: Install Potrace (macOS)
+      if: matrix.os == 'macos-latest'
+      run: |
+        brew install potrace
 
     - name: Install dependencies
       run: |
