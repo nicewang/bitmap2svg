@@ -1,7 +1,7 @@
 # bitmap2svg
 ## Current Version: 0.2.0
 ### 1. Introduction
-Convert a grayscale bitmap to SVG string
+Convert a bitmap to SVG string
 ### 2. Package Structure
 ```
 ${project_workspace}/
