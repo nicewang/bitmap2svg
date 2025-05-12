@@ -1,7 +1,3 @@
-// bitmap2svg/cpp/bitmap_to_svg.cpp
-
-#include "bitmap_to_svg.h"
-
 #include <string>
 #include <vector>
 #include <sstream>
