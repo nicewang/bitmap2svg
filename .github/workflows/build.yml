@@ -6,22 +6,19 @@ on:
   pull_request:
     branches: [bitmap2svg]
 
-
 jobs:
   build:
     runs-on: ubuntu-latest
 
     steps:
-
-      - name: Checkout code  
-        uses: actions/checkout@v3
+      - uses: actions/checkout@v3
 
       - name: Install dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y libpotrace-dev cmake pkg-config
-          python -m pip install --upgrade pip
-          python -m pip install numpy
+          pip install -U pip
+          pip install build numpy
 
       - name: Build package
         run: |
