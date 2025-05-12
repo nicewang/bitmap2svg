@@ -1,49 +1,43 @@
-from setuptools import setup, find_packages, Extension
+import setuptools
 import os
-import sys
 
 try:
     import pybind11
+    pybind11_include_dir = pybind11.get_include()
 except ImportError:
-    raise RuntimeError("Pybind11 is required. Please install it with 'pip install pybind11'")
+    pybind11_include_dir = ""
 
-tracer_module = Extension(
-    'bitmap2svg._tracer',
-    sources=[
-        'bitmap2svg/cpp/bitmap_to_svg.cpp',
-        'bitmap2svg/cpp/bindings.cpp',
-    ],
-    libraries=['potrace'],
-    include_dirs=[
-        'bitmap2svg/cpp',
-        pybind11.get_include(),
-        pybind11.get_include(user=True),
-    ],
-    extra_compile_args=['-std=c++11', '-fPIC', '-stdlib=libc++'],
-    extra_link_args=[],
-    language='c++'
-)
-
-setup(
-    name='bitmap2svg',
-    version='0.2.0',
-    packages=find_packages(),
-    ext_modules=[tracer_module],
-    install_requires=[
-        'Pillow',
-        'numpy',
-        'pybind11>=2.6',
-    ],
-    author='Xiaonan (Nice) Wang',
-    description='Convert bitmap images to SVG',
+setuptools.setup(
+    name="bitmap2svg_potrace",
+    version="0.1.0",
+    author="Your Name",
+    author_email="your.email@example.com",
+    description="A Python wrapper for bitmap to SVG conversion using Potrace",
     long_description=open('README.md').read(),
-    long_description_content_type='text/markdown',
-    url='https://github.com/Opensource-Nice-Arishi/kaggle_drawing_with_LLMs/tree/bitmap2svg',
+    long_description_content_type="text/markdown",
+    url="https://github.com/yourusername/your_repo",
+    packages=setuptools.find_packages(),
     classifiers=[
-        'Programming Language :: Python :: 3',
-        'License :: OSI Approved :: MIT License',
-        'Operating System :: OS Independent',
-        'Topic :: Multimedia :: Graphics :: Convert',
-        'Topic :: Scientific/Engineering :: Image Processing',
+        "Programming Language :: Python :: 3",
+        "License :: OSI Approved :: MIT License",
+        "Operating System :: OS Independent",
+    ],
+    python_requires='>=3.6',
+    ext_modules=[
+        setuptools.Extension(
+            '_bitmap2svg_core',
+            ['src/bitmap2svg.cpp'],
+            include_dirs=[
+                '/usr/local/include',
+                '/usr/include',
+                 pybind11_include_dir,
+            ],
+            library_dirs=[
+                '/usr/local/lib',
+                '/usr/lib',
+            ],
+            libraries=['potrace'],
+            extra_compile_args=['-std=c++17'],
+        )
     ],
 )

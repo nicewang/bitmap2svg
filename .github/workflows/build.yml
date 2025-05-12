@@ -1,92 +1,51 @@
-name: Build and Upload Wheels
+name: Build Bitmap2SVG Python Package
 
 on:
-    push:
-        tags:
-            - 'v[0-9]+.*'
-    pull_request:
-        branches:
-            - bitmap2svg
-    workflow_dispatch:
+  push:
+    branches:
+      - bitmap2svg 
+  pull_request:
+    branches:
+      - bitmap2svg
 
 jobs:
-    build_wheels:
-        name: Build wheels on ${{ matrix.os }}
+  build_wheels:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest] # Build on Ubuntu and macOS
+        python-version: [3.7, 3.8, 3.9, '3.10', '3.11', '3.12'] # Build for different Python versions
 
-        runs-on: ${{ matrix.os }}
+    steps:
+    - uses: actions/checkout@v4
 
-        strategy:
-            matrix:
-                os: [ubuntu-latest, macos-latest, windows-latest]
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ matrix.python-version }}
 
-        steps:
-            - uses: actions/checkout@v4
+    - name: Install Potrace (Ubuntu)
+      if: matrix.os == 'ubuntu-latest'
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y potrace libpotrace-dev # Install potrace and development headers
 
-            - uses: actions/setup-python@v5
-              with:
-                  python-version: '3.x'
+    - name: Install Potrace (macOS)
+      if: matrix.os == 'macos-latest'
+      run: |
+        brew install potrace # Install potrace using Homebrew
 
-            - name: Install Potrace on Ubuntu
-              if: runner.os == 'Linux'
-              run: |
-                  sudo apt-get update
-                  sudo apt-get install -y libpotrace-dev
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install setuptools wheel pybind11
 
-            - name: Install Potrace on macOS
-              if: runner.os == 'macOS'
-              run: |
-                  brew install potrace
+    - name: Build wheel
+      run: |
+        python -m pip wheel . --no-deps -w dist
 
-            - name: Install Potrace on Windows
-              if: runner.os == 'Windows'
-              run: |
-                  echo "Windows Potrace installation needs specific steps"
-                  exit 1
-
-            - name: Install cibuildwheel
-              run: |
-                  pip install cibuildwheel wheel
-
-            - name: Build wheels
-              run: cibuildwheel --output-dir wheelhouse
-
-            - uses: actions/upload-artifact@v4
-              with:
-                  name: wheels-${{ matrix.os }}
-                  path: ./wheelhouse/*.whl
-
-    upload_pypi:
-        name: Upload wheels to PyPI
-        needs: build_wheels
-        runs-on: ubuntu-latest
-        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags')
-
-        environment:
-            name: pypi
-            url: https://pypi.org/p/your-package-name
-
-        permissions:
-            id-token: write
-
-        steps:
-            - uses: actions/download-artifact@v4
-              with:
-                  pattern: wheels-*
-                  path: dist
-
-            - name: List downloaded wheels
-              run: ls -R dist/
-
-            - uses: actions/setup-python@v5
-              with:
-                  python-version: '3.x'
-
-            - name: Install Twine
-              run: pip install twine
-
-            - name: Upload wheels
-              run: |
-                  python -m twine upload dist/*/ --non-interactive
-              env:
-                  TWINE_USERNAME: __token__
-                  TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: python-package-wheels
+        path: dist/*.whl
