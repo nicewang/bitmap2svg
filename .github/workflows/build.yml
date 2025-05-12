@@ -31,12 +31,9 @@ jobs:
 
     - name: Build package
       run: |
-        export SKBUILD_NO_ISOLATE=1
-        python -m build
-        pip wheel . -w dist --no-build-isolation
-
+        python -m build --no-isolation
 
     - name: Test import
       run: |
-          pip install dist/*.whl
-          python -c "import bitmap2svg; print(bitmap2svg.convert_image_to_svg.__doc__)"
+        pip install dist/*.whl
+        python -c "import bitmap2svg; print(bitmap2svg.convert_image_to_svg.__doc__)"
