@@ -33,6 +33,7 @@ jobs:
       run: |
         export SKBUILD_NO_ISOLATE=1
         python -m build
+        pip wheel . -w dist --no-build-isolation
 
 
     - name: Test import
