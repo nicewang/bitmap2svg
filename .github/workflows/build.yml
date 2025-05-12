@@ -24,13 +24,20 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y libpotrace-dev pkg-config
 
-    - name: Check for potrace .pc files
-      run: |
-        ls /usr/lib/pkgconfig/*.pc
-        ls /usr/local/lib/pkgconfig/*.pc
+    - name: Check /usr/local/lib/pkgconfig/ for .pc files
+      run: ls /usr/local/lib/pkgconfig/*.pc
 
-    - name: List all packages known to pkg-config
-      run: pkg-config --list-all
+    - name: Search for files containing "potrace"
+      run: sudo find / -name "*potrace*" -print
+
+    - name: Reinstall libpotrace-dev and check output
+      run: |
+        sudo apt-get remove --purge -y libpotrace-dev
+        sudo apt-get update
+        sudo apt-get install -y libpotrace-dev
+
+    - name: Check pkg-config default path
+      run: pkg-config --variable pc_path pkg-config
 
     - name: Upgrade pip and install build tools
       run: |
