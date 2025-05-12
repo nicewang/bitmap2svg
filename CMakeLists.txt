@@ -14,15 +14,12 @@ find_library(POTRACE_LIBRARY NAMES potrace
 find_path(POTRACE_INCLUDE_DIR NAMES potracelib.h
           HINTS /usr/include)
 
-pybind11_add_module(bitmap2svg_cpp bitmap2svg/cpp/bindings.cpp
-    INCLUDE_DIRS ${POTRACE_INCLUDE_DIR}
-)
+pybind11_add_module(bitmap2svg_cpp bitmap2svg/cpp/bindings.cpp)
 
 if(POTRACE_LIBRARY AND POTRACE_INCLUDE_DIR)
-    target_link_libraries(bitmap2svg_cpp PRIVATE ${POTRACE_LIBRARY})
-    target_link_libraries(bitmap2svg_cpp PRIVATE potrace)
+    target_include_directories(bitmap2svg_cpp PRIVATE ${POTRACE_INCLUDE_DIR} ${pybind11_INCLUDE_DIRS})
+    target_link_libraries(bitmap2svg_cpp PRIVATE ${POTRACE_LIBRARY} ${PYTHON_LIBRARIES})
+    set_target_properties(bitmap2svg_cpp PROPERTIES SUFFIX ${PYTHON_MODULE_EXTENSION})
 else()
     message(FATAL_ERROR "Could not find potrace library or header file.")
 endif()
-
-set(CMAKE_VERBOSE_MAKEFILE ON) # Enable verbose makefile output (for Ninja)
