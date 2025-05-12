@@ -19,19 +19,10 @@ jobs:
       with:
         python-version: "3.12"
 
-    - name: Install system dependencies (for potrace)
+    - name: Install system dependencies
       run: |
         sudo apt-get update
         sudo apt-get install -y libpotrace-dev pkg-config
-
-    - name: Reinstall libpotrace-dev and check output
-      run: |
-        sudo apt-get remove --purge -y libpotrace-dev
-        sudo apt-get update
-        sudo apt-get install -y libpotrace-dev
-
-    - name: Check pkg-config default path
-      run: pkg-config --variable pc_path pkg-config
 
     - name: Upgrade pip and install build tools
       run: |
@@ -42,11 +33,9 @@ jobs:
       run: rm -rf build
 
     - name: Build package
-      run: |
-        python -m build --no-isolation
+      run: python -m build --no-isolation
 
     - name: Test import
       run: |
         pip install dist/*.whl
         python -c "import bitmap2svg; print(bitmap2svg.convert_image_to_svg.__doc__)"
-        
