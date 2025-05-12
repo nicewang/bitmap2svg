@@ -2,6 +2,8 @@ from setuptools import setup, find_packages
 from pybind11.setup_helpers import Pybind11Extension, build_ext
 import pybind11
 
+import os
+
 cpp_sources = [
     'bitmap2svg/cpp/bitmap_to_svg.cpp',
     'bitmap2svg/cpp/bindings.cpp',
