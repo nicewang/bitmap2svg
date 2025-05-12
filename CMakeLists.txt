@@ -17,7 +17,8 @@ find_path(POTRACE_INCLUDE_DIR NAMES potracelib.h
 add_library(bitmap2svg_cpp MODULE bitmap2svg/cpp/bindings.cpp bitmap2svg/cpp/bitmap_to_svg.cpp)
 
 if(POTRACE_LIBRARY AND POTRACE_INCLUDE_DIR)
-    target_include_directories(bitmap2svg_cpp PRIVATE ${POTRACE_INCLUDE_DIR} ${pybind11_INCLUDE_DIRS})
+    target_compile_options(bitmap2svg_cpp PRIVATE "-I${POTRACE_INCLUDE_DIR}")
+    target_include_directories(bitmap2svg_cpp PRIVATE ${pybind11_INCLUDE_DIRS})
     target_link_libraries(bitmap2svg_cpp PRIVATE ${POTRACE_LIBRARY} ${PYTHON_LIBRARIES})
     set_target_properties(bitmap2svg_cpp PROPERTIES SUFFIX ${PYTHON_MODULE_EXTENSION})
 else()
