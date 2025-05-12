@@ -1,6 +1,6 @@
 from setuptools import setup, find_packages
 from pybind11.setup_helpers import Pybind11Extension, build_ext
-import os
+import pybind11
 
 cpp_sources = [
     'bitmap2svg/cpp/bitmap_to_svg.cpp',
@@ -13,6 +13,7 @@ ext_modules = [
         sources=cpp_sources,
         include_dirs=[
             'bitmap2svg/cpp',
+            pybind11.get_include(),
         ],
         libraries=["potrace"],
         extra_compile_args=["-std=c++17"],
