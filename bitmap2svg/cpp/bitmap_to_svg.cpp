@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cmath>
 #include <iomanip>
+#include <cstdint>
 
 #include <potracelib.h>
 
