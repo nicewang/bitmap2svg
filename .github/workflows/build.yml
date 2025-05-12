@@ -3,7 +3,7 @@ name: Build Bitmap2SVG Python Package
 on:
   push:
     branches:
-      - bitmap2svg 
+      - bitmap2svg
   pull_request:
     branches:
       - bitmap2svg
@@ -13,8 +13,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ubuntu-latest, macos-latest] # Build on Ubuntu and macOS
-        python-version: [3.8, 3.9, '3.10', '3.11', '3.12'] # Build for different Python versions
+        os: [ubuntu-latest, macos-latest]
+        python-version: [3.8, 3.9, '3.10', '3.11', '3.12']
 
     steps:
     - uses: actions/checkout@v4
@@ -28,12 +28,12 @@ jobs:
       if: matrix.os == 'ubuntu-latest'
       run: |
         sudo apt-get update
-        sudo apt-get install -y potrace libpotrace-dev # Install potrace and development headers
+        sudo apt-get install -y potrace libpotrace-dev
 
     - name: Install Potrace (macOS)
       if: matrix.os == 'macos-latest'
       run: |
-        brew install potrace # Install potrace using Homebrew
+        brew install potrace
 
     - name: Install dependencies
       run: |
