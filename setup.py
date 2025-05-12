@@ -9,13 +9,13 @@ except ImportError:
 
 setuptools.setup(
     name="bitmap2svg_potrace",
-    version="0.1.0",
-    author="Your Name",
-    author_email="your.email@example.com",
+    version="0.2.0",
+    author="Xiao (Nice) Wang",
+    author_email="wangxiaonannice@gmail.com",
     description="A Python wrapper for bitmap to SVG conversion using Potrace",
     long_description=open('README.md').read(),
     long_description_content_type="text/markdown",
-    url="https://github.com/yourusername/your_repo",
+    url="https://github.com/Opensource-Nice-Arishi/kaggle_drawing_with_LLMs/tree/bitmap2svg",
     packages=setuptools.find_packages(),
     classifiers=[
         "Programming Language :: Python :: 3",
@@ -26,7 +26,7 @@ setuptools.setup(
     ext_modules=[
         setuptools.Extension(
             '_bitmap2svg_core',
-            ['src/bitmap2svg.cpp'],
+            ['cpp/bitmap2svg.cpp'],
             include_dirs=[
                 '/usr/local/include',
                 '/usr/include',
