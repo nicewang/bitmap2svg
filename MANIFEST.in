@@ -1,1 +1,2 @@
 include CMakeLists.txt
+recursive-include bitmap2svg *.cpp *.h
