@@ -9,7 +9,6 @@
 #include <cstdint>
 
 #include <potracelib.h>
-#include <bitmap.h>
 
 potrace_bitmap_t* create_potrace_bitmap(int width, int height, const uint8_t* pixels, int channels, const std::vector<uint8_t>& target_color, int threshold) {
     potrace_bitmap_t* bm = potrace_bitmap_new(width, height);
