@@ -1,7 +1,5 @@
 from setuptools import setup, find_packages
 from pybind11.setup_helpers import Pybind11Extension, build_ext
-import pybind11
-
 import os
 
 cpp_sources = [
@@ -9,18 +7,20 @@ cpp_sources = [
     'bitmap2svg/cpp/bindings.cpp',
 ]
 
-ext_modules = [
-    Pybind11Extension(
-        "_bitmap2svg_core",
-        sources=cpp_sources,
-        include_dirs=[
-            'bitmap2svg/cpp',
-            pybind11.get_include(),
-        ],
-        libraries=["potrace"],
-        extra_compile_args=["-std=c++17"],
-    )
-]
+def get_ext_modules():
+    import pybind11
+    return [
+        Pybind11Extension(
+            "_bitmap2svg_core",
+            sources=cpp_sources,
+            include_dirs=[
+                'bitmap2svg/cpp',
+                pybind11.get_include(),
+            ],
+            libraries=["potrace"],
+            extra_compile_args=["-std=c++17"],
+        )
+    ]
 
 setup(
     name="bitmap2svg_potrace",
@@ -38,7 +38,7 @@ setup(
         "Operating System :: OS Independent",
     ],
     python_requires='>=3.8',
-    ext_modules=ext_modules,
+    ext_modules=get_ext_modules(),
     cmdclass={"build_ext": build_ext},
     zip_safe=False,
 )

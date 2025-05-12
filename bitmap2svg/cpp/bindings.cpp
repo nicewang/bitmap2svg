@@ -1,3 +1,5 @@
+// bitmap2svg/cpp/bindings.cpp
+
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
 #include <pybind11/bytes.h>
@@ -12,15 +14,14 @@ namespace py = pybind11;
 std::string convert_image_to_svg_pybind(int width, int height, py::bytes pixel_bytes, int channels) {
     const char* pixels_ptr = pixel_bytes.c_str();
     size_t size = static_cast<size_t>(py::len(pixel_bytes));
-
     size_t expected_size = static_cast<size_t>(width) * height * channels;
+
     if (size != expected_size) {
-         throw py::value_error("Pixel data size mismatch: expected " + std::to_string(expected_size) + ", got " + std::to_string(size) +
-                               ", for dimensions " + std::to_string(width) + "x" + std::to_string(height) + " with " + std::to_string(channels) + " channels.");
+        throw py::value_error("Pixel data size mismatch: expected " + std::to_string(expected_size) +
+                              ", got " + std::to_string(size));
     }
 
     const uint8_t* pixels = reinterpret_cast<const uint8_t*>(pixels_ptr);
-
     return convert_image_to_svg_core(width, height, pixels, channels);
 }
 
