@@ -1,0 +1,9 @@
+cmake_minimum_required(VERSION 3.15)
+project(bitmap2svg LANGUAGES CXX)
+
+find_package(pybind11 REQUIRED)
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(POTRACE REQUIRED IMPORTED_TARGET potrace)
+
+pybind11_add_module(bitmap2svg_cpp bitmap2svg/cpp/bindings.cpp)
+target_link_libraries(bitmap2svg_cpp PRIVATE PkgConfig::POTRACE)
