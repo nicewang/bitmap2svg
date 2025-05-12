@@ -3,10 +3,10 @@ name: Build Bitmap2SVG Python Package
 on:
   push:
     branches:
-      - bitmap2svg
+      - bitmap2svg # Using the branch name from your provided file
   pull_request:
     branches:
-      - bitmap2svg
+      - bitmap2svg # Using the branch name from your provided file
 
 jobs:
   build_wheels:
@@ -39,6 +39,50 @@ jobs:
       run: |
         python -m pip install --upgrade pip
         pip install setuptools wheel pybind11
+
+    # --- Start Debugging Step ---
+    - name: Debug Pybind11 includes
+      run: |
+        echo "--- Debugging Pybind11 Installation ---"
+        # Find the location of the pybind11 package via Python
+        PYBIND11_LOCATION=$(python -c "import pybind11, os; print(os.path.dirname(pybind11.__file__))")
+        echo "Pybind11 package __file__ directory: $PYBIND11_LOCATION"
+
+        # The expected include directory is usually inside the package directory
+        PYBIND11_EXPECTED_INCLUDE_DIR="$PYBIND11_LOCATION/include"
+        echo "Pybind11 expected include directory: $PYBIND11_EXPECTED_INCLUDE_DIR"
+
+        # Check if the expected include directory exists
+        if [ -d "$PYBIND11_EXPECTED_INCLUDE_DIR" ]; then
+          echo "Listing contents of the expected include directory ($PYBIND11_EXPECTED_INCLUDE_DIR):"
+          # List contents recursively to see the pybind11 subdirectory structure
+          ls -R "$PYBIND11_EXPECTED_INCLUDE_DIR"
+          echo "" # Add a newline for readability
+
+          # Check specifically for the 'pybind11' subdirectory inside the include directory
+          if [ -d "$PYBIND11_EXPECTED_INCLUDE_DIR/pybind11" ]; then
+            echo "Listing contents of the 'pybind11' headers subdirectory ($PYBIND11_EXPECTED_INCLUDE_DIR/pybind11):"
+            # List contents of the actual headers directory
+            ls "$PYBIND11_EXPECTED_INCLUDE_DIR/pybind11"
+            echo "" # Add a newline
+
+            # Check specifically for the 'bytes.h' file
+            if [ -f "$PYBIND11_EXPECTED_INCLUDE_DIR/pybind11/bytes.h" ]; then
+              echo "SUCCESS: pybind11/bytes.h found at $PYBIND11_EXPECTED_INCLUDE_DIR/pybind11/bytes.h"
+            else
+              echo "ERROR: pybind11/bytes.h NOT FOUND inside $PYBIND11_EXPECTED_INCLUDE_DIR/pybind11/"
+              echo "The file is missing where the compiler expects it."
+            fi
+          else
+            echo "ERROR: The 'pybind11' subdirectory was NOT FOUND inside the expected include directory ($PYBIND11_EXPECTED_INCLUDE_DIR)."
+            echo "The header structure is not as expected."
+          fi
+        else
+          echo "ERROR: The expected Pybind11 include directory ($PYBIND11_EXPECTED_INCLUDE_DIR) does NOT EXIST."
+        fi
+
+        echo "--- End Debugging Pybind11 Installation ---"
+    # --- End Debugging Step ---
 
     - name: Build wheel
       run: |
