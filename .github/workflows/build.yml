@@ -23,7 +23,14 @@ jobs:
       run: |
         sudo apt-get update
         sudo apt-get install -y libpotrace-dev pkg-config
-        dpkg -l | grep libpotrace
+
+    - name: Check for potrace .pc files
+      run: |
+        ls /usr/lib/pkgconfig/*.pc
+        ls /usr/local/lib/pkgconfig/*.pc
+
+    - name: List all packages known to pkg-config
+      run: pkg-config --list-all
 
     - name: Upgrade pip and install build tools
       run: |
@@ -31,8 +38,6 @@ jobs:
         python -m pip install build scikit-build-core numpy pybind11 cmake ninja
 
     - name: Build package
-      env:
-        PKG_CONFIG_PATH: /usr/lib/pkgconfig:/usr/local/lib/pkgconfig
       run: |
         python -m build --no-isolation
 
@@ -40,3 +45,4 @@ jobs:
       run: |
         pip install dist/*.whl
         python -c "import bitmap2svg; print(bitmap2svg.convert_image_to_svg.__doc__)"
+        
