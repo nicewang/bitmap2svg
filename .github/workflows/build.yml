@@ -16,7 +16,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libpotrace-dev cmake
+          sudo apt-get install -y libpotrace-dev cmake pkg-config
           pip install -U pip
           pip install build numpy
 
