@@ -15,3 +15,5 @@ dependencies = ["numpy"]
 cmake.source-dir = "."
 cmake.version = ">=3.15"
 build.verbose = true
+build-frontend = "custom"
+no-isolation = true
