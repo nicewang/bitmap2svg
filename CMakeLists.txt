@@ -14,8 +14,6 @@ find_library(POTRACE_LIBRARY NAMES potrace
 find_path(POTRACE_INCLUDE_DIR NAMES potracelib.h
           HINTS /usr/include)
 
-set(CMAKE_EXPORT_COMPILE_COMMANDS ON) # Enable compilation database
-
 pybind11_add_module(bitmap2svg_cpp bitmap2svg/cpp/bindings.cpp
     INCLUDE_DIRS ${POTRACE_INCLUDE_DIR}
 )
@@ -26,3 +24,5 @@ if(POTRACE_LIBRARY AND POTRACE_INCLUDE_DIR)
 else()
     message(FATAL_ERROR "Could not find potrace library or header file.")
 endif()
+
+set(CMAKE_VERBOSE_MAKEFILE ON) # Enable verbose makefile output (for Ninja)
