@@ -27,8 +27,8 @@ jobs:
     # - name: Check /usr/local/lib/pkgconfig/ for .pc files
     #   run: ls /usr/local/lib/pkgconfig/*.pc
 
-    - name: Search for files containing "potrace"
-      run: sudo find / -name "*potrace*" -print
+    # - name: Search for files containing "potrace"
+    #   run: sudo find / -name "*potrace*" -print
 
     - name: Reinstall libpotrace-dev and check output
       run: |
