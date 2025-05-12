@@ -5,12 +5,12 @@
 #include <algorithm>
 #include <cmath>
 #include <iomanip>
-#include <cstdint>
+#include <stdexcept>
 
 #include <potracelib.h>
 
 potrace_bitmap_t* create_potrace_bitmap(int width, int height, const uint8_t* pixels, int channels, const std::vector<uint8_t>& target_color, int threshold) {
-    potrace_bitmap_t* bm = potrace_bitmap_new(width, height);
+    potrace_bitmap_t* bm = potrace_bitmap_new(width, height); 
     if (!bm) return nullptr;
 
     for (int y = 0; y < height; ++y) {
@@ -22,48 +22,48 @@ potrace_bitmap_t* create_potrace_bitmap(int width, int height, const uint8_t* pi
                 is_target = pixels[offset] >= threshold;
             } else if (channels >= 3) {
                 if (channels == 4 && pixels[offset + 3] < 128) {
-                    is_target = false;
+                     is_target = false;
                 } else {
                     is_target = (pixels[offset]     == target_color[0] &&
                                  pixels[offset + 1] == target_color[1] &&
                                  pixels[offset + 2] == target_color[2]);
                 }
             }
-
             POTRACE_BM_PUT(bm, x, y, is_target ? 1 : 0);
         }
     }
-
     return bm;
 }
 
 std::string path_to_svg_d(const potrace_path_t* path) {
     std::ostringstream d;
-    d << std::fixed << std::setprecision(3);
+    d << std::fixed << std::setprecision(3); 
 
     for (const potrace_path_t* subpath = path; subpath; subpath = subpath->next) {
-        d << "M " << subpath->curve.v[0].x << "," << subpath->curve.v[0].y;
-        for (int i = 0; i < subpath->curve.n; ++i) {
-            const potrace_curve_t* curve = &subpath->curve;
-            int j = (i + 1) % curve->n;
+        const potrace_curve_t* curve = &subpath->curve;
+        int n = curve->n; 
+        if (n == 0) continue; 
+        d << "M " << curve->c[n - 1][2].x << "," << curve->c[n - 1][2].y;
 
-            if (curve->tag[j] == POTRACE_CORNER) {
-                d << " L " << curve->v[j].x << "," << curve->v[j].y;
-            } else if (curve->tag[j] == POTRACE_CURVETO) {
-                d << " C " << curve->c[j].x << "," << curve->c[j].y
-                  << " " << curve->c[j].m.x << "," << curve->c[j].m.y
-                  << " " << curve->v[j].x << "," << curve->v[j].y;
+        for (int i = 0; i < n; ++i) {
+            if (curve->tag[i] == POTRACE_CORNER) {
+                d << " L " << curve->c[i][1].x << "," << curve->c[i][1].y;
+            } else if (curve->tag[i] == POTRACE_CURVETO) {
+                d << " C " << curve->c[i][0].x << "," << curve->c[i][0].y
+                  << " " << curve->c[i][1].x << "," << curve->c[i][1].y
+                  << " " << curve->c[i][2].x << "," << curve->c[i][2].y;
             }
         }
-        d << " Z";
+        d << " Z"; 
     }
 
     return d.str();
 }
 
+
 std::string convert_image_to_svg_core(int width, int height, const uint8_t* pixels, int channels) {
     if (!pixels || width <= 0 || height <= 0 || (channels != 1 && channels != 3 && channels != 4)) {
-        return "<svg></svg>";
+        return "<svg></svg>"; 
     }
 
     std::ostringstream svg;
@@ -72,16 +72,21 @@ std::string convert_image_to_svg_core(int width, int height, const uint8_t* pixe
 
     if (channels == 1) {
         auto* bm = create_potrace_bitmap(width, height, pixels, channels, {}, 128);
-        if (!bm) return "<svg></svg>";
+        if (!bm) return "<svg></svg>"; 
 
-        auto* param = potrace_init();
-        auto* st = potrace_trace(param, bm);
-
-        if (st && st->path) {
-            svg << "<path d=\"" << path_to_svg_d(st->path) << "\" fill=\"black\" stroke=\"none\" />\n";
+        auto* param = potrace_param_default();
+        if (!param) {
+             potrace_bitmap_delete(bm); 
+             return "<svg></svg>"; 
         }
 
-        potrace_bitmap_free(bm);
+        auto* st = potrace_trace(param, bm); 
+
+        if (st && st->status == POTRACE_STATUS_OK && st->plist) { 
+            svg << "<path d=\"" << path_to_svg_d(st->plist) << "\" fill=\"black\" stroke=\"none\" />\n";
+        }
+
+        potrace_bitmap_delete(bm);
         potrace_param_free(param);
         if (st) potrace_state_free(st);
 
@@ -90,7 +95,7 @@ std::string convert_image_to_svg_core(int width, int height, const uint8_t* pixe
         for (int y = 0; y < height; ++y) {
             for (int x = 0; x < width; ++x) {
                 int offset = (y * width + x) * channels;
-                if (channels == 4 && pixels[offset + 3] < 128) continue;
+                if (channels == 4 && pixels[offset + 3] < 128) continue; // 跳过透明度低的像素
 
                 std::vector<uint8_t> color = {
                     pixels[offset], pixels[offset + 1], pixels[offset + 2]
@@ -100,24 +105,28 @@ std::string convert_image_to_svg_core(int width, int height, const uint8_t* pixe
         }
 
         for (const auto& color : colors) {
-            auto* bm = create_potrace_bitmap(width, height, pixels, channels, color);
-            if (!bm) continue;
+            auto* bm = create_potrace_bitmap(width, height, pixels, channels, color, 0);
+            if (!bm) continue; 
 
-            auto* param = potrace_init();
-            auto* st = potrace_trace(param, bm);
+            auto* param = potrace_param_default();
+             if (!param) {
+                potrace_bitmap_delete(bm);
+                continue; 
 
-            if (st && st->path) {
+            auto* st = potrace_trace(param, bm); 
+
+            if (st && st->status == POTRACE_STATUS_OK && st->plist) { 
                 std::ostringstream hex;
                 hex << "#" << std::hex << std::setfill('0');
                 for (uint8_t c : color) {
                     hex << std::setw(2) << static_cast<int>(c);
                 }
 
-                svg << "<path d=\"" << path_to_svg_d(st->path)
+                svg << "<path d=\"" << path_to_svg_d(st->plist)
                     << "\" fill=\"" << hex.str() << "\" stroke=\"none\" />\n";
             }
 
-            potrace_bitmap_free(bm);
+            potrace_bitmap_delete(bm);
             potrace_param_free(param);
             if (st) potrace_state_free(st);
         }
