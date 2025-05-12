@@ -14,11 +14,10 @@ find_library(POTRACE_LIBRARY NAMES potrace
 find_path(POTRACE_INCLUDE_DIR NAMES potracelib.h
           HINTS /usr/include)
 
-pybind11_add_module(bitmap2svg_cpp bitmap2svg/cpp/bindings.cpp
-    INCLUDE_DIRS ${POTRACE_INCLUDE_DIR}
-)
+pybind11_add_module(bitmap2svg_cpp bitmap2svg/cpp/bindings.cpp)
 
 if(POTRACE_LIBRARY AND POTRACE_INCLUDE_DIR)
+    target_include_directories(bitmap2svg_cpp PRIVATE ${POTRACE_INCLUDE_DIR})
     target_link_libraries(bitmap2svg_cpp PRIVATE ${POTRACE_LIBRARY})
     target_link_libraries(bitmap2svg_cpp PRIVATE potrace)
 else()
