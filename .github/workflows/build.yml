@@ -1,41 +1,32 @@
-name: Build Bitmap2SVG Python package
+name: Build and Package
 
 on:
   push:
-    branches: [bitmap2svg]
+    branches: [ bitmap2svg ]
   pull_request:
-    branches: [bitmap2svg]
+    branches: [ bitmap2svg ]
 
 jobs:
   build:
     runs-on: ubuntu-latest
 
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v3
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-    - name: Set up Python
-      uses: actions/setup-python@v4
-      with:
-        python-version: "3.12"
+      - name: Install Potrace dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libpotrace-dev
 
-    - name: Install system dependencies
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y libpotrace-dev pkg-config
+      - name: Set CMAKE_PREFIX_PATH
+        run: echo "CMAKE_PREFIX_PATH=/usr:/usr/local:/opt/local" >> $GITHUB_ENV
 
-    - name: Upgrade pip and install build tools
-      run: |
-        python -m pip install --upgrade pip
-        python -m pip install build scikit-build-core numpy pybind11 cmake ninja
+      - name: Configure CMake
+        run: cmake -B build
 
-    - name: Clean build directory
-      run: rm -rf build
+      - name: Build
+        run: cmake --build build -j ${{ github.event_name == 'push' && '2' || '4' }}
 
-    - name: Build package
-      run: python -m build --no-isolation
-
-    - name: Test import
-      run: |
-        pip install dist/*.whl
-        python -c "import bitmap2svg; print(bitmap2svg.convert_image_to_svg.__doc__)"
+      - name: Test
+        run: cmake --build build --target test 

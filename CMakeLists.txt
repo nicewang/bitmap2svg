@@ -10,7 +10,7 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(pybind11)
 
-# Find potrace using find_package
+# Find Python
 find_package(Potrace REQUIRED
     HINTS
         ${CMAKE_INSTALL_PREFIX}
@@ -28,8 +28,27 @@ find_package(Potrace REQUIRED
         Potrace/cmake
 )
 
+# If find_package fails, try find_library and find_path as a fallback
 if(NOT Potrace_FOUND)
-    message(FATAL_ERROR "Could not find Potrace library. Please ensure it is installed and CMake can find it.")
+    find_library(POTRACE_LIBRARY NAMES potrace
+                 HINTS
+                     /usr/lib
+                     /usr/lib/x86_64-linux-gnu
+                     /usr/local/lib)
+    find_path(POTRACE_INCLUDE_DIR NAMES potracelib.h
+              HINTS
+                  /usr/include
+                  /usr/local/include
+                  /usr/include/potrace) # Some distributions might put the header in a subdirectory
+
+    if(POTRACE_LIBRARY AND POTRACE_INCLUDE_DIR)
+        message(STATUS "Potrace found using find_library/find_path")
+        set(Potrace_FOUND TRUE)
+        set(Potrace_INCLUDE_DIRS ${POTRACE_INCLUDE_DIR})
+        set(Potrace_LIBRARIES ${POTRACE_LIBRARY})
+    else()
+        message(FATAL_ERROR "Could not find Potrace library. Please ensure it is installed and CMake can find it.")
+    endif()
 endif()
 
 # Add C++ extension module
