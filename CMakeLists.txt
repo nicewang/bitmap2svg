@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.15)
 project(bitmap2svg LANGUAGES CXX)
 
-# Fetch pybind11 from GitHub
+# Fetch pybind11
 include(FetchContent)
 FetchContent_Declare(
   pybind11
@@ -10,31 +10,35 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(pybind11)
 
-# Find Python 3 interpreter and development libraries
-find_package(Python3 COMPONENTS Interpreter Development REQUIRED)
+# Find potrace
+find_library(POTRACE_LIBRARY NAMES potrace
+             HINTS /usr/lib /usr/lib/x86_64-linux-gnu)
+find_path(POTRACE_INCLUDE_DIR NAMES potracelib.h
+          HINTS /usr/include /usr/local/include)
 
-# Find potrace library and header
-find_library(POTRACE_LIBRARY NAMES potrace HINTS /usr/lib /usr/lib/x86_64-linux-gnu)
-find_path(POTRACE_INCLUDE_DIR NAMES potracelib.h HINTS /usr/include)
-
-# Fail early if not found
 if(NOT POTRACE_LIBRARY OR NOT POTRACE_INCLUDE_DIR)
-    message(FATAL_ERROR "Could not find potrace library or headers")
+    message(FATAL_ERROR "Could not find potrace library or header file.")
 endif()
 
-# Add Python module target using pybind11
-pybind11_add_module(bitmap2svg_cpp
+# Add C++ extension module
+add_library(bitmap2svg_cpp MODULE
     bitmap2svg/cpp/bindings.cpp
     bitmap2svg/cpp/bitmap_to_svg.cpp
 )
 
-# Include potrace headers
+# Set correct extension for Python module
+set_target_properties(bitmap2svg_cpp PROPERTIES
+    SUFFIX "${PYTHON_MODULE_EXTENSION}"
+    CXX_STANDARD 17
+    CXX_STANDARD_REQUIRED YES
+)
+
+# Include paths and link libraries
 target_include_directories(bitmap2svg_cpp PRIVATE
     ${POTRACE_INCLUDE_DIR}
 )
 
-# Link with potrace and Python
 target_link_libraries(bitmap2svg_cpp PRIVATE
+    pybind11::module
     ${POTRACE_LIBRARY}
-    Python3::Python
 )
