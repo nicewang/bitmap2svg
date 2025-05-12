@@ -19,7 +19,7 @@ tracer_module = Extension(
         pybind11.get_include(),
         pybind11.get_include(user=True),
     ],
-    extra_compile_args=['-std=c++11', '-fPIC'],
+    extra_compile_args=['-std=c++11', '-fPIC', '-stdlib=libc++'],
     extra_link_args=[],
     language='c++'
 )
