@@ -24,8 +24,8 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y libpotrace-dev pkg-config
 
-    - name: Check /usr/local/lib/pkgconfig/ for .pc files
-      run: ls /usr/local/lib/pkgconfig/*.pc
+    # - name: Check /usr/local/lib/pkgconfig/ for .pc files
+    #   run: ls /usr/local/lib/pkgconfig/*.pc
 
     - name: Search for files containing "potrace"
       run: sudo find / -name "*potrace*" -print
@@ -52,4 +52,3 @@ jobs:
       run: |
         pip install dist/*.whl
         python -c "import bitmap2svg; print(bitmap2svg.convert_image_to_svg.__doc__)"
-        
