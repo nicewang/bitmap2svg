@@ -13,5 +13,5 @@ dependencies = ["numpy"]
 
 [tool.scikit-build]
 cmake.source-dir = "."
-cmake.version = "3.15"
+cmake.version = ">=3.15"
 build.verbose = true
