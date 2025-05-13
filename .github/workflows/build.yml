@@ -36,31 +36,44 @@ jobs:
       if: runner.os == 'Linux'
       run: |
         echo "--- Verifying Potrace PkgConfig ---"
-        echo "Current PKG_CONFIG_PATH: ${PKG_CONFIG_PATH}"
+        set -euo pipefail
 
-        echo "Attempting to find 'potrace' using pkg-config..."
-        set -x
-        if pkg-config --exists potrace; then
-          set +x
+        echo "Current PKG_CONFIG_PATH is: ${PKG_CONFIG_PATH}" 
+
+        echo "Attempting to find 'potrace' using pkg-config --cflags..."
+        pkg_config_output=$(pkg-config --cflags potrace 2>&1 || true) 
+        pkg_config_status=$? 
+
+        if [ $pkg_config_status -eq 0 ]; then
           echo "✅ Success: pkg-config found 'potrace'."
           echo "--- Potrace CFLAGS ---"
-          pkg-config --cflags potrace # 打印包含路径
+          echo "$pkg_config_output" 
           echo "--- Potrace LIBS ---"
-          pkg-config --libs potrace   # 打印链接信息
+          pkg-config --libs potrace 
         else
-          set +x
           echo "❌ Failure: pkg-config did NOT find 'potrace'."
-          echo "--- Diagnosing ---"
+          echo "Pkg-config output/error: $pkg_config_output"
+          echo "--- Diagnosing location of potrace.pc ---"
           echo "Searching for potrace.pc in common paths:"
-          # 查找 potrace.pc 文件可能存在的位置
-          find /usr /lib /opt -name "potrace.pc" 2>/dev/null || echo "No potrace.pc found in common /usr, /lib, /opt paths."
 
-          echo "Contents of standard pkgconfig directories:"
-          ls /usr/lib/pkgconfig/ 2>/dev/null || echo "/usr/lib/pkgconfig/ not found or empty"
-          ls /usr/lib/x86_64-linux-gnu/pkgconfig/ 2>/dev/null || echo "/usr/lib/x86_64-linux-gnu/pkgconfig/ not found or empty"
-          ls /usr/share/pkgconfig/ 2>/dev/null || echo "/usr/share/pkgconfig/ not found or empty"
+          echo "Checking /usr/lib/pkgconfig/potrace.pc:"
+          ls /usr/lib/pkgconfig/potrace.pc 2>/dev/null && echo "Found at /usr/lib/pkgconfig/" || echo "Not found."
 
-          exit 1
+          echo "Checking /usr/lib/x86_64-linux-gnu/pkgconfig/potrace.pc:"
+          ls /usr/lib/x86_64-linux-gnu/pkgconfig/potrace.pc 2>/dev/null && echo "Found at /usr/lib/x86_64-linux-gnu/pkgconfig/" || echo "Not found."
+
+          echo "Checking /usr/share/pkgconfig/potrace.pc:"
+          ls /usr/share/pkgconfig/potrace.pc 2>/dev/null && echo "Found at /usr/share/pkgconfig/" || echo "Not found."
+
+          echo "Searching broader system paths with find:"
+          find /usr /lib -name "potrace.pc" 2>/dev/null || echo "No potrace.pc found in common /usr, /lib paths."
+
+          if ! find /usr /lib -name "potrace.pc" -print -quit 2>/dev/null; then
+              echo "--- Critical Error: potrace.pc not found in standard locations after apt install ---"
+              exit 1 
+          else
+              echo "--- Found potrace.pc with find, but pkg-config still failed. Investigate PKG_CONFIG_PATH or pkg-config setup ---"
+          fi
         fi
         echo "--- End Verify Potrace PkgConfig ---"
 
