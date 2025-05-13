@@ -12,7 +12,7 @@ jobs:
     strategy:
       fail-fast: false # Don't cancel other jobs if one fails
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-latest]
         python-version: ["3.8", "3.9", "3.10", "3.11", "3.12"] # Test against multiple Python versions
 
     steps:
@@ -32,10 +32,10 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y cmake libpotrace-dev pkg-config
 
-    - name: Install OS Dependencies (macOS)
-      if: runner.os == 'macOS'
-      run: |
-        brew install cmake potrace pkg-config 
+    # - name: Install OS Dependencies (macOS)
+    #   if: runner.os == 'macOS'
+    #   run: |
+    #     brew install cmake potrace pkg-config 
 
     - name: Install Python Build Dependencies
       run: |
@@ -45,8 +45,9 @@ jobs:
 
     - name: Build Python Wheel
       run: |
-        # The `python -m build` command will invoke setup.py,
-        # which in turn uses our custom CMakeBuild command to build the C++ library.
+        python -m pip install --upgrade pip
+        pip install build wheel setuptools
+        PKG_CONFIG_PATH="/usr/lib/pkgconfig:/usr/lib/x86_64-linux-gnu/pkgconfig:/usr/share/pkgconfig" \
         python -m build --wheel
 
     - name: Upload artifact (wheels)
