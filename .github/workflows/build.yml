@@ -30,12 +30,12 @@ jobs:
       if: runner.os == 'Linux'
       run: |
         sudo apt-get update
-        sudo apt-get install -y cmake libpotrace-dev # Install CMake and Potrace development files
+        sudo apt-get install -y cmake libpotrace-dev pkg-config
 
     - name: Install OS Dependencies (macOS)
       if: runner.os == 'macOS'
       run: |
-        brew install cmake potrace # Install CMake and Potrace via Homebrew
+        brew install cmake potrace pkg-config 
 
     - name: Install Python Build Dependencies
       run: |
