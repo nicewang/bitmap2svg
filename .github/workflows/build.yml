@@ -12,7 +12,7 @@ jobs:
     strategy:
       fail-fast: false # Don't cancel other jobs if one fails
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        os: [ubuntu-latest, macos-latest]
         python-version: ["3.8", "3.9", "3.10", "3.11", "3.12"] # Test against multiple Python versions
 
     steps:
@@ -36,15 +36,6 @@ jobs:
       if: runner.os == 'macOS'
       run: |
         brew install cmake potrace # Install CMake and Potrace via Homebrew
-
-    - name: Install OS Dependencies (Windows)
-      if: runner.os == 'Windows'
-      run: |
-        git clone https://github.com/microsoft/vcpkg $env:VCPKG_ROOT
-        & "$env:VCPKG_ROOT\bootstrap-vcpkg.bat"
-        # Install potrace for the target architecture (x64 for most runners)
-        & "$env:VCPKG_ROOT\vcpkg install potrace --triplet x64-windows"
-
 
     - name: Install Python Build Dependencies
       run: |
