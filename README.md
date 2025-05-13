@@ -1,21 +1,10 @@
 # bitmap2svg
-## Current Version: 0.2.0
+## Current Version: 0.2.1
 ### 1. Introduction
 Convert a bitmap to SVG string
 ### 2. Package Structure
 ```
-${project_workspace}/
-├── .github
-│   └── workflows
-│       └── build.yml
-├── bitmap2svg       
-│   └── __init__.py
-├── src                        
-│   ├── bitmap_to_svg.cpp      
-│   └── bitmap_to_svg.h        
-├── CMakeLists.txt             
-├── setup.py                   
-└── README.md                  
+${project_workspace}/                
 ```
 ### 3. Install
 
