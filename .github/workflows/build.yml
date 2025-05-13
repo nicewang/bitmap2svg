@@ -32,58 +32,59 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y cmake libpotrace-dev pkg-config
 
-    - name: Verify Potrace PkgConfig
-      if: runner.os == 'Linux'
-      run: |
-        echo "--- Verifying Potrace PkgConfig ---"
-        set -euo pipefail
-
-        echo "Current PKG_CONFIG_PATH is: ${PKG_CONFIG_PATH}" 
-
-        echo "Attempting to find 'potrace' using pkg-config --cflags..."
-        pkg_config_output=$(pkg-config --cflags potrace 2>&1 || true) 
-        pkg_config_status=$? 
-
-        if [ $pkg_config_status -eq 0 ]; then
-          echo "✅ Success: pkg-config found 'potrace'."
-          echo "--- Potrace CFLAGS ---"
-          echo "$pkg_config_output" 
-          echo "--- Potrace LIBS ---"
-          pkg-config --libs potrace 
-        else
-          echo "❌ Failure: pkg-config did NOT find 'potrace'."
-          echo "Pkg-config output/error: $pkg_config_output"
-          echo "--- Diagnosing location of potrace.pc ---"
-          echo "Searching for potrace.pc in common paths:"
-
-          echo "Checking /usr/lib/pkgconfig/potrace.pc:"
-          ls /usr/lib/pkgconfig/potrace.pc 2>/dev/null && echo "Found at /usr/lib/pkgconfig/" || echo "Not found."
-
-          echo "Checking /usr/lib/x86_64-linux-gnu/pkgconfig/potrace.pc:"
-          ls /usr/lib/x86_64-linux-gnu/pkgconfig/potrace.pc 2>/dev/null && echo "Found at /usr/lib/x86_64-linux-gnu/pkgconfig/" || echo "Not found."
-
-          echo "Checking /usr/share/pkgconfig/potrace.pc:"
-          ls /usr/share/pkgconfig/potrace.pc 2>/dev/null && echo "Found at /usr/share/pkgconfig/" || echo "Not found."
-
-          echo "Searching broader system paths with find:"
-          find /usr /lib -name "potrace.pc" 2>/dev/null || echo "No potrace.pc found in common /usr, /lib paths."
-
-          if ! find /usr /lib -name "potrace.pc" -print -quit 2>/dev/null; then
-              echo "--- Critical Error: potrace.pc not found in standard locations after apt install ---"
-              exit 1 
-          else
-              echo "--- Found potrace.pc with find, but pkg-config still failed. Investigate PKG_CONFIG_PATH or pkg-config setup ---"
-          fi
-        fi
-        echo "--- End Verify Potrace PkgConfig ---"
-
     - name: Build Python Wheel
       run: |
+        set -euo pipefail # Set shell to bash and enable immediate exit on error, print commands
+    
         python -m pip install --upgrade pip
         pip install build wheel setuptools
+    
         export PKG_CONFIG_PATH="/usr/lib/pkgconfig:/usr/lib/x86_64-linux-gnu/pkgconfig:/usr/share/pkgconfig"
         echo "Set PKG_CONFIG_PATH to: ${PKG_CONFIG_PATH}"
+    
+        echo "--- Verifying Potrace PkgConfig in Build Step Environment ---"
+    
+        echo "Running 'pkg-config --variable pc_path pkg-config' to show default search paths:"
+        pkg_config --variable pc_path pkg-config || echo "Could not get pkg-config search paths."
+    
+        echo "Checking if 'potrace' module is found with our PKG_CONFIG_PATH:"
+        if pkg-config --exists potrace; then
+            echo "✅ Success: pkg-config found 'potrace' using set PKG_CONFIG_PATH."
+            echo "--- Potrace CFLAGS ---"
+            pkg-config --cflags potrace 
+            echo "--- Potrace LIBS ---"
+            pkg-config --libs potrace   
+        else
+            echo "❌ Failure: pkg-config did NOT find 'potrace' even with set PKG_CONFIG_PATH."
+            echo "--- Diagnosing location of potrace.pc ---"
+            echo "Searching for potrace.pc in directories listed in PKG_CONFIG_PATH:"
+            echo "$PKG_CONFIG_PATH" | tr ':' '\n' | while read dir; do
+                if [ -d "$dir" ]; then
+                    echo "Contents of $dir:"
+                    ls "$dir"/potrace.pc 2>/dev/null && echo "Found potrace.pc in $dir" || echo "potrace.pc not found in $dir"
+                else
+                    echo "Directory $dir not found or is not a directory."
+                fi
+            done
+    
+            echo "Searching broader system paths with find:"
+            find /usr /lib -name "potrace.pc" 2>/dev/null || echo "No potrace.pc found in common /usr, /lib paths."
+    
+            echo "--- Critical Error: potrace.pc not found or pkg-config issue persists ---"
+            exit 1 
+        fi
+        echo "--- End Verify Potrace PkgConfig in Build Step Environment ---"
+    
+        echo "Running python -m build --wheel..."
         python -m build --wheel
+
+    # - name: Build Python Wheel
+    #   run: |
+    #     python -m pip install --upgrade pip
+    #     pip install build wheel setuptools
+    #     export PKG_CONFIG_PATH="/usr/lib/pkgconfig:/usr/lib/x86_64-linux-gnu/pkgconfig:/usr/share/pkgconfig"
+    #     echo "Set PKG_CONFIG_PATH to: ${PKG_CONFIG_PATH}"
+    #     python -m build --wheel
 
     - name: Upload artifact (wheels)
       uses: actions/upload-artifact@v4
