@@ -17,7 +17,7 @@ message(STATUS "Pybind11 library: ${pybind11_LIBRARIES}")
 
 pybind11_add_module(bitmap2svg_core 
     bitmap2svg/cpp/bindings.cpp
-    bitmap2svg/cpp/cpp_svg_converter.cpp 
+    bitmap2svg/cpp/bitmap_to_svg.cpp 
 )
 
 target_include_directories(bitmap2svg_core PUBLIC

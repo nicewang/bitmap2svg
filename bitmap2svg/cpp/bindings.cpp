@@ -5,8 +5,7 @@
 #include <vector>
 
 // Include the C++ header for our core logic.
-// This should declare bitmapToSvg_with_internal_quantization and the Color struct (if needed by Python, though not directly here).
-#include "cpp_svg_converter.h"
+#include "bitmap_to_svg.h"
 
 namespace py = pybind11;
 
@@ -15,7 +14,7 @@ namespace py = pybind11;
 PYBIND11_MODULE(bitmap2svg_core, m) {
     m.doc() = "Pybind11 wrapper for C++ bitmap to SVG converter with internal color quantization and OpenCV enhancements.";
 
-    // Optional: If you need to expose the Color struct to Python for some reason (e.g., debugging, or if Python constructs it)
+    // Optional: If need to expose the Color struct to Python for some reason (e.g., debugging, or if Python constructs it)
     // py::class_<Color>(m, "Color_cpp") // Renamed to avoid conflict if Python has 'Color'
     //     .def(py::init<unsigned char, unsigned char, unsigned char>())
     //     .def_readwrite("r", &Color::r)

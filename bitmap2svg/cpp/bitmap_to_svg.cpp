@@ -1,4 +1,4 @@
-#include "cpp_svg_converter.h" // Contains Color, SvgFeature, and function declaration
+#include "bitmap_to_svg.h" // Contains Color, SvgFeature, and function declaration
 
 #include <opencv2/opencv.hpp>     // Main OpenCV header
 #include <opencv2/imgproc.hpp>    // For cv::cvtColor, cv::kmeans, cv::inRange, cv::findContours, cv::approxPolyDP, etc.
@@ -127,7 +127,6 @@ std::string bitmapToSvg_with_internal_quantization(
 
     if (raw_img_rgb.empty()) {
         std::cerr << "Error: Raw image data is empty or Mat construction failed." << std::endl;
-        // FIX: Use std::stringstream to build the error SVG string
         std::stringstream error_svg;
         error_svg << "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"" << width 
                   << "\" height=\"" << height 
@@ -169,7 +168,9 @@ std::string bitmapToSvg_with_internal_quantization(
         cv::Mat mask;
         cv::inRange(quantized_img_rgb, target_cv_color_rgb, target_cv_color_rgb, mask);
 
-        if (cv::countNonZero(mask) == 0) continue; // Skip if this color is not present
+        if (cv::countNonZero(mask) == 0) {
+            continue; // Skip if this color is not present
+        }
 
         std::vector<std::vector<cv::Point>> contours;
         // cv::findContours modifies the input mask, so pass a clone if mask is needed later.

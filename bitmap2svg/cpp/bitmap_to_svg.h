@@ -1,5 +1,5 @@
-#ifndef CPP_SVG_CONVERTER_H
-#define CPP_SVG_CONVERTER_H
+#ifndef BITMAP_TO_SVG_H
+#define BITMAP_TO_SVG_H
 
 #include <string>
 #include <vector>
@@ -61,4 +61,4 @@ std::string bitmapToSvg_with_internal_quantization(
     int original_svg_height = -1
 );
 
-#endif // CPP_SVG_CONVERTER_H
+#endif // BITMAP_TO_SVG_H

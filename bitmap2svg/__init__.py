@@ -1,6 +1,6 @@
 import numpy as np
 from PIL import Image
-import sys # For stderr printing during debugging or import issues
+import sys
 
 def bitmap_to_svg(
     image: Image.Image,
@@ -67,14 +67,10 @@ def bitmap_to_svg(
         if num_colors > 0:
             num_colors_for_cpp_hint = num_colors
         # If num_colors is 0 or negative, it will also trigger adaptive in C++
-        # (or you can explicitly set it to 0 if num_colors is None).
+        # (or can explicitly set it to 0 if num_colors is None).
 
     # Call the C++ core function.
     try:
-        # print(f"Calling C++ backend with processed image size: {processed_image.size}, "
-        #       f"num_colors_hint: {num_colors_for_cpp_hint}, "
-        #       f"original SVG size: ({original_pil_width}, {original_pil_height})", file=sys.stderr)
-        
 
         from . import bitmap2svg_core
 
