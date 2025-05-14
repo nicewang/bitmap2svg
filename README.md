@@ -1,23 +1,35 @@
 # bitmap2svg
-## Current Version: 0.2.0
+## Current Version: 0.2.1
 ### 1. Introduction
-Convert a bitmap to SVG string
+A library to convert bitmaps to SVG, using C++ and OpenCV
 ### 2. Package Structure
 ```
 ${project_workspace}/
-├── .github
-│   └── workflows
-│       └── build.yml
-├── bitmap2svg       
-│   └── __init__.py
-├── src                        
-│   ├── bitmap_to_svg.cpp      
-│   └── bitmap_to_svg.h        
-├── CMakeLists.txt             
-├── setup.py                   
-└── README.md                  
+├── bitmap2svg/
+│   ├── __init__.py
+│   └── cpp/
+│       ├── bitmap_to_svg.cpp
+│       ├── bitmap_to_svg.h
+│       ├── bindings.cpp
+├── pyproject.toml
+├── setup.py
+├── CMakeLists.txt
+└── README.md               
 ```
 ### 3. Install
+#### 3.1 Local Install
+```bash
+cd ${project_workspace}/
+pip install --upgrade pybind11 setuptools wheel
+pip install -e .
+# or
+pip install .
+```
+#### 3.2 Remote Install
+```bash
+pip install git+https://github.com/Opensource-Nice-Arishi/kaggle_drawing_with_LLMs.git@bitmap2svg
 
+```
 ## Historical Versions
+* [v0.2.1](https://github.com/Opensource-Nice-Arishi/kaggle_drawing_with_LLMs/tree/v0.2.1-bitmap2svg)
 * [v0.1.0](https://github.com/Opensource-Nice-Arishi/kaggle_drawing_with_LLMs/tree/v0.1.0-bitmap2svg)

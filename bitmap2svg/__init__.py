@@ -1,155 +1,159 @@
-import ctypes
-import os
+import numpy as np
+from PIL import Image
 import sys
-from typing import Union, Optional
 
-# Determine the shared library name based on the platform
-if sys.platform == 'win32':
-    _library_name = 'bitmap_to_svg.dll'
-elif sys.platform == 'darwin':
-    _library_name = 'libbitmap_to_svg.dylib'
-else: # Linux and others
-    _library_name = 'libbitmap_to_svg.so'
-
-_library = None
-
-def _load_library():
-    """Loads the shared library, searching in the package directory."""
-    global _library
-    if _library is not None:
-        return _library
-
-    # Search path: first in the directory of this file (the installed package dir)
-    package_dir = os.path.dirname(__file__)
-    library_path = os.path.join(package_dir, _library_name)
-
-    if not os.path.exists(library_path):
-        # If not found, try loading from default system paths (LD_LIBRARY_PATH, PATH, etc.)
-        # This might happen during development or if the library is installed globally.
-        print(f"Warning: C++ library not found at {library_path}. Trying default system paths.")
-        try:
-            _library = ctypes.CDLL(_library_name)
-        except OSError as e:
-            raise FileNotFoundError(f"Could not find or load the C++ library: {_library_name}. Looked in {package_dir} and system paths.") from e
-    else:
-         try:
-             _library = ctypes.CDLL(library_path)
-         except OSError as e:
-            raise OSError(f"Could not load the C++ library from {library_path}: {e}") from e
-
-
-    # Define the function signature for ctypes
-    # const char* convert_image_to_svg(int width, int height, const uint8_t* pixels, int channels);
-    try:
-        _library.convert_image_to_svg.argtypes = [
-            ctypes.c_int,
-            ctypes.c_int,
-            ctypes.POINTER(ctypes.c_uint8),
-            ctypes.c_int
-        ]
-        _library.convert_image_to_image.restype = ctypes.c_char_p
-    except AttributeError:
-         raise AttributeError(f"Could not find the 'convert_image_to_svg' function in the loaded library '{_library_name}'. Ensure the function is exported correctly.")
-
-
-    return _library
-
-def convert_image_to_svg(width: int, height: int, pixels: bytes, channels: int) -> str:
+def bitmap_to_svg(
+    image: Image.Image,
+    num_colors: int | None = None, # User specifies desired colors, None for adaptive.
+    resize: bool = True,           # Whether to resize the image before processing.
+    target_size: tuple[int, int] = (384, 384), # Target (width, height) for resizing.
+    # simplification_factor: float = 0.005 # Could be exposed if needed
+) -> str:
     """
-    Converts bitmap pixel data to SVG using the C++ library.
+    Converts a PIL Image object to an SVG string using the C++ backend.
+
+    The C++ backend handles color quantization (including adaptive color count
+    if num_colors is None), contour detection, polygon simplification, and
+    SVG generation.
 
     Args:
-        width: Image width in pixels.
-        height: Image height in pixels.
-        pixels: Raw pixel data as a bytes object (e.g., from image.tobytes()).
-                Format depends on channels (e.g., 'L', 'RGB', 'RGBA').
-        channels: Number of color channels (1 for grayscale, 3 for RGB, 4 for RGBA).
+        image: The input PIL.Image.Image object.
+        num_colors: The desired number of dominant colors in the SVG.
+                    If None, the C++ backend will adaptively choose the number
+                    of colors based on image size.
+        resize: If True, the image will be resized to `target_size` before
+                conversion. This can significantly affect processing time and
+                output complexity.
+        target_size: A tuple (width, height) for resizing if `resize` is True.
 
     Returns:
-        A string containing the SVG XML code.
-
+        A string containing the SVG code.
+        
     Raises:
-        FileNotFoundError: If the C++ library cannot be found.
-        OSError: If the C++ library fails to load or execute.
-        ValueError: If input dimensions/channels or pixel data size are invalid.
-        AttributeError: If the expected C++ function is not found in the library.
+        TypeError: If the input image is not a PIL.Image.Image instance.
+        ValueError: If target_size is not valid.
     """
-    if width <= 0 or height <= 0 or channels <= 0:
-         raise ValueError("Width, height, and channels must be positive integers.")
-    expected_size = width * height * channels
-    if len(pixels) != expected_size:
-        raise ValueError(f"Expected {expected_size} bytes of pixel data, but got {len(pixels)}.")
+    if not isinstance(image, Image.Image):
+        raise TypeError("Input 'image' must be a PIL.Image.Image instance.")
 
-    lib = _load_library()
+    if not (isinstance(target_size, tuple) and len(target_size) == 2 and
+            all(isinstance(dim, int) and dim > 0 for dim in target_size)):
+        raise ValueError("target_size must be a tuple of two positive integers (width, height).")
 
-    # Convert Python bytes to ctypes pointer
-    # ctypes.c_uint8 is equivalent to uint8_t
-    # pixels is a bytes object, which is contiguous in memory.
-    # Use addressof to get the memory address, then cast to the desired pointer type.
-    pixels_ptr = ctypes.cast(ctypes.addressof(ctypes.create_string_buffer(pixels)), ctypes.POINTER(ctypes.c_uint8))
+    original_pil_width, original_pil_height = image.size
+    
+    # Work on a copy of the image to avoid modifying the original PIL Image object.
+    processed_image = image.copy()
 
-    # Call the C++ function
-    # The C++ function returns const char*, which ctypes maps to c_char_p
-    # c_char_p is a pointer to a null-terminated byte string.
-    # We need to decode it to a Python string.
+    if resize:
+        # print(f"Resizing image from {processed_image.size} to {target_size}", file=sys.stderr)
+        processed_image = processed_image.resize(target_size, Image.LANCZOS) # LANCZOS for high quality resize
+    
+    # Ensure the image is in RGB format, as C++ expects 3 channels.
+    if processed_image.mode != 'RGB':
+        processed_image = processed_image.convert('RGB')
+
+    # Convert the (potentially resized) PIL Image to a NumPy array.
+    # The C++ backend expects raw pixel data.
+    # Ensure it's C-contiguous for pybind11.
+    img_np_raw = np.array(processed_image, dtype=np.uint8)
+    if not img_np_raw.flags['C_CONTIGUOUS']:
+        img_np_raw = np.ascontiguousarray(img_np_raw) # Make it C-contiguous if not already
+
+    # Determine the num_colors_hint for the C++ function.
+    # Pass 0 or a negative value to C++ to trigger its adaptive color selection logic.
+    num_colors_for_cpp_hint = 0 
+    if num_colors is not None:
+        if num_colors > 0:
+            num_colors_for_cpp_hint = num_colors
+        # If num_colors is 0 or negative, it will also trigger adaptive in C++
+        # (or can explicitly set it to 0 if num_colors is None).
+
+    # Call the C++ core function.
     try:
-         svg_cstr = lib.convert_image_to_svg(width, height, pixels_ptr, channels)
+
+        from . import bitmap2svg_core
+
+        svg_code = bitmap2svg_core.convert_bitmap_to_svg_cpp(
+            raw_bitmap_data_rgb=img_np_raw,
+            num_colors_hint=num_colors_for_cpp_hint,
+            # Pass original dimensions so C++ can set SVG width/height attributes correctly,
+            # while viewBox will be based on processed_image dimensions.
+            original_width_py=original_pil_width,
+            original_height_py=original_pil_height
+        )
+    except ImportError as e:
+        print(
+            f"Failed to import bitmap2svg_core: {e}\n"
+            "Please ensure the C++ module is compiled correctly and is in the PYTHONPATH "
+            "or the current working directory.",
+            file=sys.stderr
+        )
+        # Re-raise the exception so the user knows the import failed critically.
+        raise
     except Exception as e:
-         raise OSError(f"Error during C++ function call: {e}") from e
+        # Catch potential errors from the C++ extension (e.g., py::value_error)
+        # or other runtime issues.
+        print(f"Error during C++ SVG conversion: {e}", file=sys.stderr)
+        # Re-raise to signal failure to the caller.
+        raise 
+    
+    return svg_code
 
-
-    # Decode the returned C-style string (bytes) to a Python string
-    # The C++ code uses a static string, so we don't need to free memory from Python.
-    if svg_cstr:
-         return svg_cstr.decode('utf-8')
-    else:
-         # C++ returns "<svg></svg>" on error, or potentially NULL.
-         # Handle NULL return explicitly if needed, but current C++ returns string.
-         return ""
-
-# Optional: Add docstrings and type hints for better usability
-convert_image_to_svg.__doc__ = """
-Converts bitmap pixel data (bytes) to an SVG string.
-
-Args:
-    width: Image width.
-    height: Image height.
-    pixels: Raw pixel data as a bytes object (e.g., from PIL Image.tobytes()).
-    channels: Number of channels (1=L, 3=RGB, 4=RGBA).
-
-Returns:
-    An SVG XML string.
-"""
-
-# Example Usage (for testing or demonstration)
+# Example usage if this script is run directly.
 if __name__ == '__main__':
-    # Create dummy pixel data (e.g., a 4x4 image with a black square on white)
-    # Grayscale (L), 1 channel
-    dummy_width, dummy_height, dummy_channels = 4, 4, 1
-    dummy_pixels_list = [
-        255, 255, 255, 255,
-        255,   0,   0, 255,
-        255,   0,   0, 255,
-        255, 255, 255, 255,
-    ]
-    dummy_pixels_bytes = bytes(dummy_pixels_list)
-
+    print("Running SVG conversion example...")
     try:
-        svg_output = convert_image_to_svg(dummy_width, dummy_height, dummy_pixels_bytes, dummy_channels)
-        print("Generated SVG (Grayscale):")
-        print(svg_output)
+        # Attempt to load a test image. Create a dummy one if not found.
+        try:
+            # Replace "test.png" with a path to an actual image file for testing.
+            test_image_path = "test.png" 
+            img = Image.open(test_image_path)
+            print(f"Loaded test image '{test_image_path}' with size: {img.size}")
+        except FileNotFoundError:
+            print(f"Test image '{test_image_path}' not found. Creating a dummy image for testing.", file=sys.stderr)
+            # Create a simple 100x150 dummy image with a few colored rectangles.
+            dummy_array = np.zeros((100, 150, 3), dtype=np.uint8)
+            dummy_array[10:40, 10:50, 0] = 200  # Reddish rectangle
+            dummy_array[10:40, 60:100, 1] = 200 # Greenish rectangle
+            dummy_array[50:90, 10:50, 2] = 200  # Bluish rectangle
+            dummy_array[50:90, 60:100, :] = 150 # Grayish rectangle
+            dummy_array[0:5, :, 0] = 255 # Red border top
+            dummy_array[:, 0:5, 1] = 255 # Green border left
 
-        # Example with color (RGB)
-        color_width, color_height, color_channels = 3, 3, 3
-        color_pixels_list = [
-             255, 0, 0,   0, 255, 0,   0, 0, 255, # Red, Green, Blue
-             255, 0, 0,   0, 255, 0,   0, 0, 255,
-             255, 0, 0,   0, 255, 0,   0, 0, 255,
-        ]
-        color_pixels_bytes = bytes(color_pixels_list)
-        svg_output_color = convert_image_to_svg(color_width, color_height, color_pixels_bytes, color_channels)
-        print("\nGenerated SVG (Color - might trace individual colors):")
-        print(svg_output_color)
+            img = Image.fromarray(dummy_array, 'RGB')
+            print(f"Created dummy image with size: {img.size}")
 
+        # --- Test Case 1: Adaptive colors, with resizing ---
+        print("\nTest Case 1: Adaptive colors, resize to (200, 150)")
+        svg_adaptive_resized = bitmap_to_svg(img, num_colors=None, resize=True, target_size=(200, 150))
+        output_path_1 = "output_cpp_adaptive_resized.svg"
+        with open(output_path_1, "w", encoding="utf-8") as f:
+            f.write(svg_adaptive_resized)
+        print(f"SVG (adaptive, resized) saved to: {output_path_1}")
+
+        # --- Test Case 2: Fixed number of colors (e.g., 5), no resizing ---
+        print("\nTest Case 2: 5 colors, no resize")
+        svg_fixed_no_resize = bitmap_to_svg(img, num_colors=5, resize=False)
+        output_path_2 = "output_cpp_5colors_no_resize.svg"
+        with open(output_path_2, "w", encoding="utf-8") as f:
+            f.write(svg_fixed_no_resize)
+        print(f"SVG (5 colors, no resize) saved to: {output_path_2}")
+
+        # --- Test Case 3: More colors, with resizing to a different target ---
+        print("\nTest Case 3: 10 colors, resize to (100, 100)")
+        svg_10_colors_resized = bitmap_to_svg(img, num_colors=10, resize=True, target_size=(100,100))
+        output_path_3 = "output_cpp_10colors_resized_100x100.svg"
+        with open(output_path_3, "w", encoding="utf-8") as f:
+            f.write(svg_10_colors_resized)
+        print(f"SVG (10 colors, resized to 100x100) saved to: {output_path_3}")
+
+        print("\nAll examples finished. Check the .svg files.")
+
+    except ImportError:
+        # This was already caught above, but good to have a catch-all here too for the example.
+        print("ImportError: bitmap2svg_core module not found. Ensure it's compiled and accessible.", file=sys.stderr)
     except Exception as e:
-        print(f"Error during conversion: {e}")
+        print(f"An unexpected error occurred in the example usage: {e}", file=sys.stderr)
+        import traceback
+        traceback.print_exc()
