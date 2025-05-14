@@ -15,19 +15,19 @@ find_package(pybind11 REQUIRED)
 message(STATUS "Pybind11 include dirs: ${pybind11_INCLUDE_DIRS}") 
 message(STATUS "Pybind11 library: ${pybind11_LIBRARIES}") 
 
-pybind11_add_module(_bitmap2svg_cpp 
+pybind11_add_module(bitmap2svg_core 
     bitmap2svg/cpp/bindings.cpp
     bitmap2svg/cpp/cpp_svg_converter.cpp 
 )
 
-target_include_directories(_bitmap2svg_cpp PUBLIC
+target_include_directories(bitmap2svg_core PUBLIC
     ${OpenCV_INCLUDE_DIRS}
     # ${pybind11_INCLUDE_DIRS} # pybind11_add_module usually handles this
     "${CMAKE_CURRENT_SOURCE_DIR}/bitmap2svg/cpp" 
 )
-target_link_libraries(_bitmap2svg_cpp PRIVATE
+target_link_libraries(bitmap2svg_core PRIVATE
     ${OpenCV_LIBS}
     pybind11::module 
 )
 
-install(TARGETS _bitmap2svg_cpp DESTINATION bitmap2svg)
+install(TARGETS bitmap2svg_core DESTINATION bitmap2svg)
