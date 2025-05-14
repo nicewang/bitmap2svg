@@ -2,22 +2,6 @@ import numpy as np
 from PIL import Image
 import sys # For stderr printing during debugging or import issues
 
-# Attempt to import the compiled C++ core module.
-# The name 'bitmap2svg_core' must match PYBIND11_MODULE name in bindings.cpp
-# and the output library name from your build system (e.g., bitmap2svg_core.so or .pyd).
-try:
-    import bitmap2svg_core
-except ImportError as e:
-    print(
-        f"Failed to import bitmap2svg_core: {e}\n"
-        "Please ensure the C++ module is compiled correctly and is in the PYTHONPATH "
-        "or the current working directory.",
-        file=sys.stderr
-    )
-    # Re-raise the exception so the user knows the import failed critically.
-    raise
-
-
 def bitmap_to_svg(
     image: Image.Image,
     num_colors: int | None = None, # User specifies desired colors, None for adaptive.
@@ -91,6 +75,9 @@ def bitmap_to_svg(
         #       f"num_colors_hint: {num_colors_for_cpp_hint}, "
         #       f"original SVG size: ({original_pil_width}, {original_pil_height})", file=sys.stderr)
         
+
+        from . import bitmap2svg_core
+
         svg_code = bitmap2svg_core.convert_bitmap_to_svg_cpp(
             raw_bitmap_data_rgb=img_np_raw,
             num_colors_hint=num_colors_for_cpp_hint,
@@ -99,6 +86,15 @@ def bitmap_to_svg(
             original_width_py=original_pil_width,
             original_height_py=original_pil_height
         )
+    except ImportError as e:
+        print(
+            f"Failed to import bitmap2svg_core: {e}\n"
+            "Please ensure the C++ module is compiled correctly and is in the PYTHONPATH "
+            "or the current working directory.",
+            file=sys.stderr
+        )
+        # Re-raise the exception so the user knows the import failed critically.
+        raise
     except Exception as e:
         # Catch potential errors from the C++ extension (e.g., py::value_error)
         # or other runtime issues.
