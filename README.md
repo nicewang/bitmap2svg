@@ -8,8 +8,8 @@ ${project_workspace}/
 ├── bitmap2svg/
 │   ├── __init__.py
 │   └── cpp/
-│       ├── cpp_svg_converter.cpp
-│       ├── cpp_svg_converter.h
+│       ├── bitmap_to_svg.cpp
+│       ├── bitmap_to_svg.h
 │       ├── bindings.cpp
 ├── pyproject.toml
 ├── setup.py
@@ -18,15 +18,6 @@ ${project_workspace}/
 ```
 ### 3. Install
 #### 3.1 Local Install
-* Way 1:
-
-```bash
-cd ${project_workspace}/
-python setup.py build
-python setup.py install
-```
-* Way 2:
-
 ```bash
 cd ${project_workspace}/
 pip install --upgrade pybind11 setuptools wheel
