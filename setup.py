@@ -79,7 +79,6 @@ class BuildExt(build_ext):
         'msvc': ['/EHsc', '/std:c++17', '/DNOMINMAX'], # /DNOMINMAX helps avoid conflicts with Windows.h and std::min/max
         'unix': ['-std=c++17', '-fPIC'], # -fPIC is crucial for building shared libraries on Unix/Linux/macOS
     }
-    # Default linker options for different platforms.
     link_opts = {
         'msvc': [],
         'unix': [],
@@ -114,7 +113,7 @@ class BuildExt(build_ext):
         # 1. Resolve Pybind11 include paths from the build environment.
         pybind11_include_dir = None
         try:
-            # Import pybind11 now. It should be available as it's in build-system.requires.
+            # Import pybind11 now. It should be available as it's in build-system.requires or install_requires.
             import pybind11
             pybind11_include_dir = pybind11.get_include()
             # pybind11_user_include_dir = pybind11.get_include(user=True) # Uncomment if user includes needed
@@ -239,6 +238,7 @@ class BuildExt(build_ext):
                 print("Configuring extension build with found OpenCV paths.")
 
                 # Add library search path for the linker (-L).
+                # This tells the linker where to look for the libraries we specify with -l.
                 link_args.append(f'-L{opencv_lib_dir}')
                 # print(f"Adding linker search path: -L{opencv_lib_dir}") # Uncomment for debugging
 
@@ -281,7 +281,7 @@ class BuildExt(build_ext):
                 # This is necessary for the C++ compiler to find OpenCV header files (#include <opencv2/...>).
                 # Explicitly add found OpenCV include directory.
                 # Add it after pybind11 includes and before project includes to prioritize it
-                # over default system paths like /usr/local/include and avoid potential name conflicts.
+                # over default system paths like /usr/local/include.
                 # Find the position of the project's include dir or just append after resolved pybind11
                 project_include_pos = -1
                 for i, path in enumerate(ext.include_dirs):
@@ -329,21 +329,29 @@ class BuildExt(build_ext):
 
             # --- End OpenCV configuration ---
 
-            # Extend the extension's args with the dynamically determined options/args.
-            ext.extra_compile_args.extend(opts)
-            ext.extra_link_args.extend(link_args)
+            # Apply the collected compiler options and linker arguments to each extension
+            # Ensure extra_compile_args and extra_link_args are lists before extending them.
+            for ext in self.extensions:
+                if not hasattr(ext, 'extra_compile_args'):
+                    ext.extra_compile_args = []
+                if not hasattr(ext, 'extra_link_args'):
+                    ext.extra_link_args = []
 
-            # Print the final arguments being used for each extension for debugging.
-            print(f"\nFinal arguments for building extension '{ext.name}':")
-            print(f"  Compile args: {ext.extra_compile_args}")
-            print(f"  Link args: {ext.extra_link_args}")
-            print(f"  Include dirs: {ext.include_dirs}\n")
+                # Extend with the dynamically determined options/args
+                ext.extra_compile_args.extend(opts)
+                ext.extra_link_args.extend(link_args)
+
+                # Print the final arguments being used for each extension for debugging.
+                print(f"\nFinal arguments for building extension '{ext.name}':")
+                print(f"  Compile args: {ext.extra_compile_args}")
+                print(f"  Link args: {ext.extra_link_args}")
+                print(f"  Include dirs: {ext.include_dirs}\n")
 
 
-        # Call the base class build_extensions method to perform the actual compilation and linking.
-        # This is where the C++ compiler (e.g., clang++) and linker (e.g., ld) are invoked
-        # using the arguments gathered in the steps above.
-        build_ext.build_extensions(self)
+            # Call the base class build_extensions method to perform the actual compilation and linking.
+            # This is where the C++ compiler (e.g., clang++, x86_64-linux-gnu-g++) and linker (e.g., ld) are invoked
+            # using the arguments gathered in the steps above.
+            build_ext.build_extensions(self)
 
 
 # The main setup function call that configures the package for setuptools.
