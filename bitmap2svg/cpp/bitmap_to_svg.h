@@ -18,7 +18,6 @@ struct SvgFeature {
     std::string color_hex;         // Compressed hex color string (e.g., "#RRGGBB" or "#RGB")
     double area;                   // Area of the contour
     double importance;             // Calculated importance score for sorting
-    // int original_contour_index; // Optional: for debugging or more complex logic
 
     // Custom comparator to sort features by importance in descending order
     bool operator<(const SvgFeature& other) const {
@@ -44,11 +43,14 @@ struct SvgFeature {
  * @param num_colors_hint Desired number of colors for quantization.
  * If <= 0, an adaptive number of colors will be chosen based on image size.
  * @param simplification_epsilon_factor Factor to determine the epsilon for cv::approxPolyDP.
- * A smaller value means less simplification. E.g., 0.005.
+ * A smaller value means less simplification. Default: 0.015.
+ * @param min_contour_area Minimum area for a contour to be considered significant enough to be rendered. Default: 30.0.
+ * @param max_features_to_render Maximum number of polygon features to render in the SVG.
+ * If <= 0, all important features will be rendered (respecting other size constraints). Default: 0.
  * @param original_svg_width Width to be set in the SVG's `width` attribute.
- * If <= 0, the processed image width (after potential resizing by Python) is used.
+ * If <= 0, the processed image width is used. Default: -1.
  * @param original_svg_height Height to be set in the SVG's `height` attribute.
- * If <= 0, the processed image height is used.
+ * If <= 0, the processed image height is used. Default: -1.
  * @return A string containing the generated SVG code.
  */
 std::string bitmapToSvg_with_internal_quantization(
@@ -56,7 +58,9 @@ std::string bitmapToSvg_with_internal_quantization(
     int width,
     int height,
     int num_colors_hint,
-    double simplification_epsilon_factor = 0.005,
+    double simplification_epsilon_factor = 0.015,
+    double min_contour_area = 30.0,
+    int max_features_to_render = 0,
     int original_svg_width = -1,
     int original_svg_height = -1
 );

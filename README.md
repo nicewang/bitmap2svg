@@ -1,5 +1,5 @@
 # bitmap2svg
-## Current Version: 0.2.1
+## Current Version: 0.2.2
 ### 1. Introduction
 A library to convert bitmaps to SVG, using C++ and OpenCV
 ### 2. Package Structure
