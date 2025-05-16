@@ -38,6 +38,11 @@ pip install scikit-build-core cmake ninja pybind11
 pip install git+https://github.com/Opensource-Nice-Arishi/kaggle_drawing_with_LLMs.git@bitmap2svg
 
 ```
+## Appendix
+### A. Defects
+* **Color Distortion** of converted SVG, especially when `adaptive color quantization`
+* **Blurred Borders** of converted SVG
+
 ## Historical Versions
 * [v0.2.2](https://github.com/Opensource-Nice-Arishi/kaggle_drawing_with_LLMs/tree/v0.2.2-bitmap2svg)
 * [v0.2.1](https://github.com/Opensource-Nice-Arishi/kaggle_drawing_with_LLMs/tree/v0.2.1-bitmap2svg)
