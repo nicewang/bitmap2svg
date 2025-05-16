@@ -40,8 +40,8 @@ pip install git+https://github.com/Opensource-Nice-Arishi/kaggle_drawing_with_LL
 ```
 ## Appendix
 ### A. Defects
-* **<font color=blue>Color Distortion</font>** of converted SVG, especially when `adaptive color quantization`
-* **<font color=blue>Blurred Borders</font>** of converted SVG
+* **🔷<span style="color:blue;">Color Distortion</spen>** of converted SVG, especially when `adaptive color quantization`
+* **🔷<span style="color:blue;">Blurred Borders</span>** of converted SVG
 
 ## Historical Versions
 * [v0.2.2](https://github.com/Opensource-Nice-Arishi/kaggle_drawing_with_LLMs/tree/v0.2.2-bitmap2svg)
