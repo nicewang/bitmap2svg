@@ -1,0 +1,63 @@
+[Version 17, Version 23, Version 26, Version 27, Version 28]
+
+Version 17:
+num_inference_steps = 25
+num_attempt = 3
+svg = bitmap2svg.bitmap_to_svg(bitmap, min_contour_area=45.0, num_colors=8)
+Original bitmap score: 0.41999372640056415
+Final svg score: 0.6954702749231211
+
+Version 23:
+num_inference_steps = 30
+num_attempt = 4
+svg = bitmap2svg.bitmap_to_svg(bitmap, min_contour_area=45.0, num_colors=8)
+Original bitmap score: 0.44566469479250975
+Final svg score: 0.6392523522905852
+
+Version 26:
+num_inference_steps = 45
+num_attempt = 4
+svg = bitmap2svg.bitmap_to_svg(bitmap, min_contour_area=15.0, num_colors=8)
+Original bitmap score: 0.44129766133958587
+Final svg score: 0.6610786231381424
+
+Version 27:
+num_inference_steps = 35
+num_attempt = 4
+svg = bitmap2svg.bitmap_to_svg(bitmap, min_contour_area=20.0, num_colors=8)
+Original bitmap score: 0.33338598137235526
+Final svg score: 0.6765057045624071
+
+Version 28:
+num_inference_steps = 32
+num_attempt = 4
+svg = bitmap2svg.bitmap_to_svg(bitmap, min_contour_area=20.0, num_colors=8)
+Original bitmap score: 0.40706078202781587
+Final svg score: 0.6912730022532566
+
+
+[Version 15, Version 24, Version 25] -> no generator
+
+Version 15:
+prompt = f'{self.prompt_prefix} {description} {self.prompt_suffix}'
+num_inference_steps = 25
+num_attempt = 3
+svg = bitmap2svg.bitmap_to_svg(bitmap)
+Original bitmap score: 0.470562931493742
+Final svg score: 0.6734555091769231
+
+Version 24:
+prompt = f'{self.prompt_prefix} {description} {self.prompt_suffix}'
+num_inference_steps = 30
+num_attempt = 4
+svg = bitmap2svg.bitmap_to_svg(bitmap)
+Original bitmap score: 0.5532725086267603
+Final svg score: 0.6555382395071472
+
+Version 25:
+prompt = f'{self.prompt_prefix} {description} {self.prompt_suffix}'
+num_inference_steps = 35
+num_attempt = 4
+svg = bitmap2svg.bitmap_to_svg(bitmap, min_contour_area=15.0)
+Original bitmap score: 0.5275079692029931
+Final svg score: 0.6604855959343606
