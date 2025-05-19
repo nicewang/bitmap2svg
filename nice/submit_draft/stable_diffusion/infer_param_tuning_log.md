@@ -68,7 +68,7 @@ Version 29:
 prompt = f'{description}'
 num_inference_steps = 32
 num_attempt = 4
-bitmap = generate_bitmap(prompt, self.negative_prompt, self.num_inference_steps, self.guidance_scale)
+svg = bitmap2svg.bitmap_to_svg(bitmap, min_contour_area=15.0)
 Original bitmap score: 0.2706269242860204
 Final svg score: 0.6720106723585885
 ```
