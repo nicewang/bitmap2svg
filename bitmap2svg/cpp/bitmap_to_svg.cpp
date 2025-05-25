@@ -37,23 +37,25 @@ std::pair<cv::Mat, std::vector<Color>> perform_color_quantization_cpp(
         return {cv::Mat(), {}};
     }
 
-    int k = num_colors_target; // Use the target directly
+    int k = num_colors_target;
 
     if (k <= 0) {
         long pixel_count = static_cast<long>(input_img_rgb.rows) * input_img_rgb.cols;
-        if (pixel_count == 0) { // Should be caught by input_img_rgb.empty() earlier
+        if (pixel_count == 0) {
             k = 1;
         } else if (pixel_count < 16384) { // e.g., < 128x128
-            k = 4;
-        } else if (pixel_count < 65536) { // e.g., < 256x256
             k = 6;
-        } else if (pixel_count < 262144) { // e.g., < 512x512
+        } else if (pixel_count < 65536) { // e.g., < 256x256
             k = 8;
-        } else {
+        } else if (pixel_count < 262144) { // e.g., < 512x512
             k = 10;
+        } else {
+            k = 12;
         }
     }
-    k = std::max(1, k); // Ensure at least one color
+    // Ensure k is within a reasonable range [1, 16] for automatic selection.
+    // User can still request more via num_colors_target if k was initially > 0.
+    k = std::max(1, std::min(k, 16));
     num_colors_target = k; // Update the output parameter with the k we are actually using
 
     cv::Mat samples_rgb(input_img_rgb.total(), 3, CV_32F);
@@ -61,38 +63,36 @@ std::pair<cv::Mat, std::vector<Color>> perform_color_quantization_cpp(
     input_img_rgb.convertTo(input_float_rgb, CV_32F);
     samples_rgb = input_float_rgb.reshape(1, input_img_rgb.total());
 
-    if (samples_rgb.rows == 0) { // No samples to process
+    if (samples_rgb.rows == 0) {
         std::cerr << "Error: No samples to process for k-means (image might be empty or too small after reshape)." << std::endl;
         return {cv::Mat(), {}};
     }
-    if (samples_rgb.rows < k) { // k-means requires samples >= k
-        // std::cout << "Warning: Number of samples (" << samples_rgb.rows << ") is less than k (" << k << "). Adjusting k." << std::endl;
+    if (samples_rgb.rows < k) {
         k = samples_rgb.rows;
-        if (k == 0) return {cv::Mat(), {}}; // No samples, return empty
-        num_colors_target = k; // Update with the adjusted k
+        if (k == 0) return {cv::Mat(), {}};
+        num_colors_target = k;
     }
-
 
     cv::Mat labels;
     cv::Mat centers_rgb;
     cv::TermCriteria criteria(cv::TermCriteria::EPS | cv::TermCriteria::MAX_ITER, 50, 0.1);
-    int attempts = (k <=8) ? 3 : 5;
+    int attempts = (k <= 8) ? 5 : 7;
 
-    if (k > 0) { // Ensure k is positive before calling kmeans
+    if (k > 0) {
         cv::kmeans(samples_rgb, k, labels, criteria, attempts, cv::KMEANS_PP_CENTERS, centers_rgb);
-    } else { // Should ideally be caught by k = std::max(1,k), but as a safeguard
-         std::cerr << "Error: k is zero or negative before calling kmeans (k=" << k << ")." << std::endl;
-        return {cv::Mat(), {}}; // Or handle as single color image
+    } else {
+        std::cerr << "Error: k is zero or negative before calling kmeans (k=" << k << ")." << std::endl;
+        return {cv::Mat(), {}};
     }
 
-    if (centers_rgb.rows == 0) { // kmeans might return 0 centers for very small k or problematic data
+    if (centers_rgb.rows == 0) {
         std::cerr << "Warning: kmeans returned 0 centers. Attempting fallback to average color." << std::endl;
-         if (input_img_rgb.total() > 0 && !input_img_rgb.empty()) {
-            cv::Scalar avg_color_scalar = cv::mean(input_img_rgb); // input_img_rgb is RGB
+        if (input_img_rgb.total() > 0 && !input_img_rgb.empty()) {
+            cv::Scalar avg_color_scalar = cv::mean(input_img_rgb);
             cv::Mat single_color_img(input_img_rgb.size(), input_img_rgb.type());
-            single_color_img.setTo(cv::Vec3b(static_cast<unsigned char>(avg_color_scalar[0]), // R
-                                             static_cast<unsigned char>(avg_color_scalar[1]), // G
-                                             static_cast<unsigned char>(avg_color_scalar[2])) // B
+            single_color_img.setTo(cv::Vec3b(static_cast<unsigned char>(avg_color_scalar[0]),
+                                             static_cast<unsigned char>(avg_color_scalar[1]),
+                                             static_cast<unsigned char>(avg_color_scalar[2]))
                                   );
             std::vector<Color> single_palette = {{
                 static_cast<unsigned char>(avg_color_scalar[0]),
@@ -102,10 +102,10 @@ std::pair<cv::Mat, std::vector<Color>> perform_color_quantization_cpp(
             num_colors_target = 1;
             return {single_color_img, single_palette};
         }
-        return {cv::Mat(), {}}; // Still failed
+        return {cv::Mat(), {}};
     }
 
-    num_colors_target = centers_rgb.rows; // Actual number of centers found
+    num_colors_target = centers_rgb.rows;
 
     cv::Mat quantized_image_rgb(input_img_rgb.size(), input_img_rgb.type());
     std::vector<Color> palette_vector_Color_struct;
@@ -113,41 +113,32 @@ std::pair<cv::Mat, std::vector<Color>> perform_color_quantization_cpp(
 
     for (int i = 0; i < centers_rgb.rows; ++i) {
         palette_vector_Color_struct.push_back({
-            static_cast<unsigned char>(std::max(0.0f, std::min(255.0f, centers_rgb.at<float>(i, 0)))), // R
-            static_cast<unsigned char>(std::max(0.0f, std::min(255.0f, centers_rgb.at<float>(i, 1)))), // G
-            static_cast<unsigned char>(std::max(0.0f, std::min(255.0f, centers_rgb.at<float>(i, 2))))  // B
+            static_cast<unsigned char>(std::max(0.0f, std::min(255.0f, centers_rgb.at<float>(i, 0)))),
+            static_cast<unsigned char>(std::max(0.0f, std::min(255.0f, centers_rgb.at<float>(i, 1)))),
+            static_cast<unsigned char>(std::max(0.0f, std::min(255.0f, centers_rgb.at<float>(i, 2))))
         });
     }
 
-    if (labels.empty() || labels.rows != samples_rgb.rows ) { // labels might be empty or incorrect size if kmeans failed badly
+    if (labels.empty() || labels.rows != samples_rgb.rows ) {
         std::cerr << "Error: kmeans failed to produce valid labels. Using palette average for image." << std::endl;
-        // Fallback: create a single-color image using average of the palette (or first color)
         if (!palette_vector_Color_struct.empty()) {
             quantized_image_rgb.setTo(cv::Vec3b(palette_vector_Color_struct[0].r, palette_vector_Color_struct[0].g, palette_vector_Color_struct[0].b));
-        } else { // No palette, no image
-             return {cv::Mat(), {}};
+        } else {
+            return {cv::Mat(), {}};
         }
     } else {
         int* plabels = labels.ptr<int>(0);
         for (int r_idx = 0; r_idx < quantized_image_rgb.rows; ++r_idx) {
             for (int c_idx = 0; c_idx < quantized_image_rgb.cols; ++c_idx) {
                 int sample_idx = r_idx * quantized_image_rgb.cols + c_idx;
-                // Ensure sample_idx is within bounds of labels array
                 if (sample_idx < labels.rows && plabels) {
-                     int cluster_idx = plabels[sample_idx];
-                     // Ensure cluster_idx is within bounds of centers_rgb matrix
-                     if (cluster_idx >=0 && cluster_idx < centers_rgb.rows) {
+                    int cluster_idx = plabels[sample_idx];
+                    if (cluster_idx >=0 && cluster_idx < centers_rgb.rows) {
                         cv::Vec3b& pixel = quantized_image_rgb.at<cv::Vec3b>(r_idx, c_idx);
-                        pixel[0] = static_cast<unsigned char>(std::max(0.0f, std::min(255.0f, centers_rgb.at<float>(cluster_idx, 0)))); // R
-                        pixel[1] = static_cast<unsigned char>(std::max(0.0f, std::min(255.0f, centers_rgb.at<float>(cluster_idx, 1)))); // G
-                        pixel[2] = static_cast<unsigned char>(std::max(0.0f, std::min(255.0f, centers_rgb.at<float>(cluster_idx, 2)))); // B
-                     } else {
-                        // std::cerr << "Warning: cluster_idx " << cluster_idx << " out of bounds for centers (0-" << centers_rgb.rows-1 << ")" << std::endl;
-                        // Optionally set to a default color or skip
-                     }
-                } else {
-                    // std::cerr << "Warning: sample_idx " << sample_idx << " out of bounds for labels (0-" << labels.rows-1 << ")" << std::endl;
-                    // Optionally set to a default color or skip
+                        pixel[0] = static_cast<unsigned char>(std::max(0.0f, std::min(255.0f, centers_rgb.at<float>(cluster_idx, 0))));
+                        pixel[1] = static_cast<unsigned char>(std::max(0.0f, std::min(255.0f, centers_rgb.at<float>(cluster_idx, 1))));
+                        pixel[2] = static_cast<unsigned char>(std::max(0.0f, std::min(255.0f, centers_rgb.at<float>(cluster_idx, 2))));
+                    }
                 }
             }
         }
@@ -232,21 +223,20 @@ std::string bitmapToSvg_with_internal_quantization(
 
             cv::Moments M = cv::moments(simplified_contour);
             cv::Point2f contour_center(0.0f, 0.0f);
-            if (M.m00 > 1e-5) { // Avoid division by zero for very small areas
+            if (M.m00 > 1e-5) {
                 contour_center.x = static_cast<float>(M.m10 / M.m00);
                 contour_center.y = static_cast<float>(M.m01 / M.m00);
             }
 
             double dist_from_img_center = cv::norm(contour_center - image_center);
             double normalized_dist = (max_dist_from_center > 1e-5) ? (dist_from_img_center / max_dist_from_center) : 0.0;
-
             double importance = area * (1.0 - normalized_dist) * (1.0 / (simplified_contour.size() + 1.0));
 
             all_features.push_back({simplified_contour, hex_color_str, area, importance});
         }
     }
 
-    std::sort(all_features.begin(), all_features.end()); // Sorts by importance (descending)
+    std::sort(all_features.begin(), all_features.end());
 
     std::stringstream svg_ss;
     int svg_attr_width = (original_svg_width > 0) ? original_svg_width : quantized_img_rgb.cols;
@@ -258,9 +248,9 @@ std::string bitmapToSvg_with_internal_quantization(
 
     cv::Scalar avg_color_rgb_scalar = cv::mean(raw_img_rgb);
     std::string bg_hex_color = compress_hex_color_cpp(
-        static_cast<unsigned char>(avg_color_rgb_scalar[0]), // R
-        static_cast<unsigned char>(avg_color_rgb_scalar[1]), // G
-        static_cast<unsigned char>(avg_color_rgb_scalar[2])  // B
+        static_cast<unsigned char>(avg_color_rgb_scalar[0]),
+        static_cast<unsigned char>(avg_color_rgb_scalar[1]),
+        static_cast<unsigned char>(avg_color_rgb_scalar[2])
     );
     svg_ss << "<rect width=\"" << quantized_img_rgb.cols
            << "\" height=\"" << quantized_img_rgb.rows
@@ -273,11 +263,10 @@ std::string bitmapToSvg_with_internal_quantization(
         }
         if (feature.points.empty()) continue;
 
-        // Corrected check using the C++ constant
         if (static_cast<long>(svg_ss.tellp()) > (MAX_SVG_SIZE_BYTES - SVG_SIZE_SAFETY_MARGIN) ) {
-             std::cerr << "Warning: Approaching max SVG size (" << MAX_SVG_SIZE_BYTES
-                       << " bytes), truncating output. Current estimated size: " << svg_ss.tellp() << std::endl;
-             break;
+            std::cerr << "Warning: Approaching max SVG size (" << MAX_SVG_SIZE_BYTES
+                      << " bytes), truncating output. Current estimated size: " << svg_ss.tellp() << std::endl;
+            break;
         }
 
         svg_ss << "<polygon points=\"";

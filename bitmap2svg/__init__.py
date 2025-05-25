@@ -7,8 +7,8 @@ def bitmap_to_svg(
     num_colors: int | None = None, # User specifies desired colors, None for adaptive.
     resize: bool = True,           # Whether to resize the image before processing.
     target_size: tuple[int, int] = (384, 384), # Target (width, height) for resizing.
-    simplification_epsilon_factor: float = 0.015, # Controls polygon simplification.
-    min_contour_area: float = 30.0,              # Minimum area for a polygon to be included.
+    simplification_epsilon_factor: float = 0.009, # Controls polygon simplification.
+    min_contour_area: float = 10.0,              # Minimum area for a polygon to be included.
     max_features_to_render: int = 0              # Max number of polygons (0 for unlimited).
 ) -> str:
     """
@@ -31,11 +31,11 @@ def bitmap_to_svg(
                                        Higher values mean more simplification and
                                        fewer points in polygons. Corresponds to
                                        the epsilon factor used in Douglas-Peucker.
-                                       Default: 0.015.
+                                       Default: 0.009.
         min_contour_area: The minimum area (in pixels^2 of the processed image)
                           for a detected contour to be included in the SVG.
                           Helps filter out noise or very small details.
-                          Default: 30.0.
+                          Default: 10.0.
         max_features_to_render: The maximum number of distinct colored polygons
                                 (features) to render in the SVG. If 0, all
                                 features passing other filters will be rendered.
@@ -91,19 +91,18 @@ def bitmap_to_svg(
     # Call the C++ core function.
     try:
 
-        from . import bitmap2svg_core
+        from . import bitmap2svg_core 
 
         svg_code = bitmap2svg_core.convert_bitmap_to_svg_cpp(
-            raw_bitmap_data_rgb=img_np_raw,
+            raw_bitmap_data_rgb=img_np_raw, # This numpy array contains the processed image data & dimensions
+            # width=processed_width, # Pass if C++ binding needs explicit processed width
+            # height=processed_height, # Pass if C++ binding needs explicit processed height
             num_colors_hint=num_colors_for_cpp_hint,
-            simplification_epsilon_factor=simplification_epsilon_factor, # New parameter
-            min_contour_area=min_contour_area,                         # New parameter
-            max_features_to_render=max_features_to_render,             # New parameter
-            # Pass original dimensions so C++ can set SVG width/height attributes correctly,
-            # if desired, even if the image was resized for processing.
-            # The viewBox will typically be based on processed_image dimensions (handled in C++).
-            original_width_py=original_pil_width,
-            original_height_py=original_pil_height
+            simplification_epsilon_factor=simplification_epsilon_factor,
+            min_contour_area=min_contour_area,
+            max_features_to_render=max_features_to_render,
+            original_width_py=original_pil_width, # For SVG's width attribute
+            original_height_py=original_pil_height # For SVG's height attribute
         )
     except ImportError as e:
         print(
@@ -128,9 +127,8 @@ if __name__ == '__main__':
     print("Running SVG conversion example...")
     try:
         # Attempt to load a test image. Create a dummy one if not found.
+        test_image_path = "test.png" # Replace with a path to an actual image file for testing.
         try:
-            # Replace "test.png" with a path to an actual image file for testing.
-            test_image_path = "test.png"
             img = Image.open(test_image_path)
             print(f"Loaded test image '{test_image_path}' with size: {img.size}")
         except FileNotFoundError:
@@ -171,15 +169,15 @@ if __name__ == '__main__':
             f.write(svg_fixed_no_resize)
         print(f"SVG (5 colors, no resize, default opts) saved to: {output_path_2}")
 
-        # --- Test Case 3: More colors, with resizing, high simplification, small min_area ---
-        print("\nTest Case 3: 10 colors, resize (100,100), high simplification, small min_area")
+        # --- Test Case 3: More colors, with resizing, high simplification, specific min_area ---
+        print("\nTest Case 3: 10 colors, resize (100,100), high simplification (0.03), min_area=5")
         svg_10_colors_custom_opts = bitmap_to_svg(
             img,
             num_colors=10,
             resize=True,
             target_size=(100,100),
             simplification_epsilon_factor=0.03, # Higher simplification
-            min_contour_area=10.0,              # Smaller minimum area
+            min_contour_area=5.0,               # Explicitly set different from default
             max_features_to_render=50           # Limit to 50 features
         )
         output_path_3 = "output_cpp_10colors_custom_opts.svg"
@@ -188,12 +186,12 @@ if __name__ == '__main__':
         print(f"SVG (10 colors, custom opts) saved to: {output_path_3}")
 
         # --- Test Case 4: No resize, default colors, very low simplification (more detail) ---
-        print("\nTest Case 4: No resize, default colors, low simplification")
+        print("\nTest Case 4: No resize, default colors, very low simplification (0.005)")
         svg_low_simplification = bitmap_to_svg(
             img,
             resize=False,
-            simplification_epsilon_factor=0.005, # Lower simplification
-            min_contour_area=5.0,                # Very small minimum area
+            simplification_epsilon_factor=0.005, # Lower simplification (more detail)
+            min_contour_area=5.0,                # Explicitly set, very small minimum area
         )
         output_path_4 = "output_cpp_low_simplification.svg"
         with open(output_path_4, "w", encoding="utf-8") as f:
@@ -201,12 +199,12 @@ if __name__ == '__main__':
         print(f"SVG (low simplification) saved to: {output_path_4}")
 
         # --- Test Case 5: Limit features ---
-        print("\nTest Case 5: Adaptive colors, no resize, limit to 3 features")
+        print("\nTest Case 5: Adaptive colors, no resize, limit to 3 features, default opts")
         svg_limited_features = bitmap_to_svg(
             img,
             num_colors=None, # Adaptive
             resize=False,
-            max_features_to_render=3 # Only render the 3 largest features
+            max_features_to_render=3 # Only render the 3 "most important" features
         )
         output_path_5 = "output_cpp_limited_features.svg"
         with open(output_path_5, "w", encoding="utf-8") as f:

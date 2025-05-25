@@ -43,8 +43,8 @@ struct SvgFeature {
  * @param num_colors_hint Desired number of colors for quantization.
  * If <= 0, an adaptive number of colors will be chosen based on image size.
  * @param simplification_epsilon_factor Factor to determine the epsilon for cv::approxPolyDP.
- * A smaller value means less simplification. Default: 0.015.
- * @param min_contour_area Minimum area for a contour to be considered significant enough to be rendered. Default: 30.0.
+ * A smaller value means less simplification. Default: 0.009.
+ * @param min_contour_area Minimum area for a contour to be considered significant enough to be rendered. Default: 10.0.
  * @param max_features_to_render Maximum number of polygon features to render in the SVG.
  * If <= 0, all important features will be rendered (respecting other size constraints). Default: 0.
  * @param original_svg_width Width to be set in the SVG's `width` attribute.
@@ -58,8 +58,8 @@ std::string bitmapToSvg_with_internal_quantization(
     int width,
     int height,
     int num_colors_hint,
-    double simplification_epsilon_factor = 0.015,
-    double min_contour_area = 30.0,
+    double simplification_epsilon_factor = 0.009,
+    double min_contour_area = 10.0,
     int max_features_to_render = 0,
     int original_svg_width = -1,
     int original_svg_height = -1
