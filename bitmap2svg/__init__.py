@@ -14,43 +14,47 @@ def bitmap_to_svg(
     """
     Converts a PIL Image object to an SVG string using the C++ backend.
 
-    The C++ backend handles color quantization (including adaptive color count
-    if num_colors is None or <=0), contour detection, polygon simplification,
-    and SVG generation.
+    The C++ backend handles color quantization, contour detection, polygon simplification,
+    and SVG generation. If compiled with appropriate support (e.g., CUDA, FAISS) and
+    a compatible GPU is available, the C++ backend may utilize GPU acceleration for
+    computationally intensive tasks like color quantization. Otherwise, it will
+    default to CPU-based processing.
 
     Args:
         image: The input PIL.Image.Image object.
         num_colors: The desired number of dominant colors in the SVG.
                     If None or <=0, the C++ backend will adaptively choose
-                    the number of colors.
-        resize: If True, the image will be resized to `target_size` before
-                conversion. This can significantly affect processing time and
-                output complexity.
+                    the number of colors (typically based on image size).
+        resize: If True, the image will be resized to `target_size` using
+                LANCZOS resampling before conversion. This can significantly
+                affect processing time and output complexity.
         target_size: A tuple (width, height) for resizing if `resize` is True.
-        simplification_epsilon_factor: Controls polygon simplification.
-                                       Higher values mean more simplification and
-                                       fewer points in polygons. Corresponds to
-                                       the epsilon factor used in Douglas-Peucker.
-                                       Default: 0.009.
+        simplification_epsilon_factor: Controls polygon simplification (Douglas-Peucker).
+                                       Higher values (e.g., 0.02) mean more simplification
+                                       and fewer points in polygons. Lower values (e.g., 0.001)
+                                       mean less simplification. Default: 0.009.
         min_contour_area: The minimum area (in pixels^2 of the processed image)
                           for a detected contour to be included in the SVG.
                           Helps filter out noise or very small details.
                           Default: 10.0.
         max_features_to_render: The maximum number of distinct colored polygons
-                                (features) to render in the SVG. If 0, all
-                                features passing other filters will be rendered.
-                                Features are typically sorted by area descending,
-                                so this effectively renders the largest N features.
-                                Default: 0 (unlimited).
+                                (features) to render in the SVG. If 0 or negative,
+                                all features passing other filters will be rendered,
+                                subject to internal SVG size limits.
+                                Features are typically sorted by importance, so this
+                                effectively renders the N most "important" features.
+                                Default: 0 (no explicit limit other than SVG size).
 
     Returns:
         A string containing the SVG code.
 
     Raises:
-        TypeError: If the input image is not a PIL.Image.Image instance.
-        ValueError: If target_size is not valid.
-        ImportError: If the C++ core module cannot be imported.
-        RuntimeError: If an error occurs during C++ processing.
+        TypeError: If the input 'image' is not a PIL.Image.Image instance.
+        ValueError: If 'target_size' is not valid.
+        ImportError: If the C++ core module ('bitmap2svg_core') cannot be imported
+                     or was not found during initial package load.
+        RuntimeError: If an error occurs during the C++ processing (e.g., memory issues,
+                      invalid input to C++ function after Python-side checks).
     """
     if not isinstance(image, Image.Image):
         raise TypeError("Input 'image' must be a PIL.Image.Image instance.")
@@ -66,45 +70,40 @@ def bitmap_to_svg(
 
     if resize:
         # print(f"Resizing image from {processed_image.size} to {target_size}", file=sys.stderr)
-        processed_image = processed_image.resize(target_size, Image.LANCZOS) # LANCZOS for high quality resize
+        processed_image = processed_image.resize(target_size, Image.Resampling.LANCZOS) 
 
-    # Ensure the image is in RGB format, as C++ expects 3 channels.
+    # Ensure the image is in RGB format, as C++ expects 3 channels (R, G, B).
     if processed_image.mode != 'RGB':
         processed_image = processed_image.convert('RGB')
 
     # Convert the (potentially resized) PIL Image to a NumPy array.
     # The C++ backend expects raw pixel data.
-    # Ensure it's C-contiguous for pybind11.
+    # Ensure it's C-contiguous for pybind11 to correctly interpret the memory layout.
     img_np_raw = np.array(processed_image, dtype=np.uint8)
     if not img_np_raw.flags['C_CONTIGUOUS']:
-        img_np_raw = np.ascontiguousarray(img_np_raw) # Make it C-contiguous if not already
+        img_np_raw = np.ascontiguousarray(img_np_raw)
 
     # Determine the num_colors_hint for the C++ function.
-    # Pass 0 or a negative value to C++ to trigger its adaptive color selection logic.
-    num_colors_for_cpp_hint = 0
-    if num_colors is not None:
-        if num_colors > 0:
-            num_colors_for_cpp_hint = num_colors
-        # If num_colors is 0 or negative, it will also trigger adaptive in C++
-        # (or can explicitly set it to 0 if num_colors is None).
+    # The C++ function bitmapToSvg_with_internal_quantization uses num_colors_hint <= 0
+    # to trigger its adaptive color selection logic.
+    num_colors_for_cpp_hint = 0 # Default to adaptive
+    if num_colors is not None and num_colors > 0:
+        num_colors_for_cpp_hint = num_colors
 
-    # Call the C++ core function.
     try:
 
-        from . import bitmap2svg_core 
+        from . import bitmap2svg_core
 
         svg_code = bitmap2svg_core.convert_bitmap_to_svg_cpp(
-            raw_bitmap_data_rgb=img_np_raw, # This numpy array contains the processed image data & dimensions
-            # width=processed_width, # Pass if C++ binding needs explicit processed width
-            # height=processed_height, # Pass if C++ binding needs explicit processed height
+            raw_bitmap_data_rgb=img_np_raw, # NumPy array (HxWx3, uint8, C-contiguous)
             num_colors_hint=num_colors_for_cpp_hint,
             simplification_epsilon_factor=simplification_epsilon_factor,
             min_contour_area=min_contour_area,
             max_features_to_render=max_features_to_render,
-            original_width_py=original_pil_width, # For SVG's width attribute
-            original_height_py=original_pil_height # For SVG's height attribute
+            original_width_py=original_pil_width,   # To set SVG's 'width' attribute
+            original_height_py=original_pil_height # To set SVG's 'height' attribute
         )
-    except ImportError as e:
+    except ImportError:
         print(
             f"Failed to import bitmap2svg_core: {e}\n"
             "Please ensure the C++ module is compiled correctly and is in the PYTHONPATH "
@@ -113,18 +112,18 @@ def bitmap_to_svg(
         )
         # Re-raise the exception so the user knows the import failed critically.
         raise
-    except Exception as e:
-        # Catch potential errors from the C++ extension (e.g., py::value_error)
-        # or other runtime issues.
-        print(f"Error during C++ SVG conversion: {e}", file=sys.stderr)
-        # Re-raise to signal failure to the caller.
+    except RuntimeError as e: # Catch errors from C++ (e.g., std::runtime_error exposed by pybind11)
+        print(f"A runtime error occurred during C++ SVG conversion: {e}", file=sys.stderr)
+        raise # Re-raise to signal failure to the caller
+    except Exception as e: # Catch any other unexpected Python-level errors during the call
+        print(f"An unexpected Python error occurred calling the C++ module: {e}", file=sys.stderr)
         raise
 
     return svg_code
 
 # Example usage if this script is run directly.
 if __name__ == '__main__':
-    print("Running SVG conversion example...")
+    print("Running bitmap2svg conversion example...")
     try:
         # Attempt to load a test image. Create a dummy one if not found.
         test_image_path = "test.png" # Replace with a path to an actual image file for testing.
@@ -133,7 +132,6 @@ if __name__ == '__main__':
             print(f"Loaded test image '{test_image_path}' with size: {img.size}")
         except FileNotFoundError:
             print(f"Test image '{test_image_path}' not found. Creating a dummy image for testing.", file=sys.stderr)
-            # Create a simple 100x150 dummy image with a few colored rectangles.
             dummy_array = np.zeros((100, 150, 3), dtype=np.uint8)
             dummy_array[10:40, 10:50, 0] = 200  # Reddish rectangle
             dummy_array[10:40, 60:100, 1] = 200 # Greenish rectangle
@@ -148,7 +146,7 @@ if __name__ == '__main__':
         print("\nTest Case 1: Adaptive colors, resize to (200, 150), default opts")
         svg_adaptive_resized = bitmap_to_svg(
             img,
-            num_colors=None,
+            num_colors=None, # Adaptive
             resize=True,
             target_size=(200, 150)
         )
@@ -176,9 +174,9 @@ if __name__ == '__main__':
             num_colors=10,
             resize=True,
             target_size=(100,100),
-            simplification_epsilon_factor=0.03, # Higher simplification
-            min_contour_area=5.0,               # Explicitly set different from default
-            max_features_to_render=50           # Limit to 50 features
+            simplification_epsilon_factor=0.03,
+            min_contour_area=5.0,
+            max_features_to_render=50
         )
         output_path_3 = "output_cpp_10colors_custom_opts.svg"
         with open(output_path_3, "w", encoding="utf-8") as f:
@@ -189,9 +187,10 @@ if __name__ == '__main__':
         print("\nTest Case 4: No resize, default colors, very low simplification (0.005)")
         svg_low_simplification = bitmap_to_svg(
             img,
+            num_colors=None, # Adaptive
             resize=False,
-            simplification_epsilon_factor=0.005, # Lower simplification (more detail)
-            min_contour_area=5.0,                # Explicitly set, very small minimum area
+            simplification_epsilon_factor=0.005,
+            min_contour_area=1.0, # Lower min area to capture more detail
         )
         output_path_4 = "output_cpp_low_simplification.svg"
         with open(output_path_4, "w", encoding="utf-8") as f:
@@ -204,20 +203,21 @@ if __name__ == '__main__':
             img,
             num_colors=None, # Adaptive
             resize=False,
-            max_features_to_render=3 # Only render the 3 "most important" features
+            max_features_to_render=3
         )
         output_path_5 = "output_cpp_limited_features.svg"
         with open(output_path_5, "w", encoding="utf-8") as f:
             f.write(svg_limited_features)
         print(f"SVG (limited to 3 features) saved to: {output_path_5}")
 
-
         print("\nAll examples finished. Check the .svg files.")
 
     except ImportError:
-        # This was already caught above, but good to have a catch-all here too for the example.
-        print("ImportError: bitmap2svg_core module not found. Ensure it's compiled and accessible.", file=sys.stderr)
+        # This will be triggered if the bitmap2svg_core module was mocked due to import failure.
+        # The original detailed error message would have been printed when the module was first loaded.
+        print("\nCritical Error: The 'bitmap2svg_core' C++ module could not be imported.", file=sys.stderr)
+        print("Please check the build and installation steps.", file=sys.stderr)
     except Exception as e:
-        print(f"An unexpected error occurred in the example usage: {e}", file=sys.stderr)
+        print(f"\nAn unexpected error occurred in the example usage: {e}", file=sys.stderr)
         import traceback
         traceback.print_exc()
