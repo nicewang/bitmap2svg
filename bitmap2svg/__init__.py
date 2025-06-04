@@ -101,8 +101,8 @@ def bitmap_to_svg(
             simplification_epsilon_factor=simplification_epsilon_factor,
             min_contour_area=min_contour_area,
             max_features_to_render=max_features_to_render,
-            original_svg_width=original_pil_width,   # For SVG's 'width' attribute
-            original_svg_height=original_pil_height # For SVG's 'height' attribute
+            original_svg_width_py=original_pil_width,   # For SVG's 'width' attribute
+            original_svg_height_py=original_pil_height # For SVG's 'height' attribute
         )
     except ImportError as e_runtime: 
         print(
