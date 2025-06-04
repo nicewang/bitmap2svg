@@ -8,17 +8,17 @@ def bitmap_to_svg(
     resize: bool = True,           # Whether to resize the image before processing.
     target_size: tuple[int, int] = (384, 384), # Target (width, height) for resizing.
     simplification_epsilon_factor: float = 0.009, # Controls polygon simplification.
-    min_contour_area: float = 10.0,              # Minimum area for a polygon to be included.
-    max_features_to_render: int = 0              # Max number of polygons (0 for unlimited).
+    min_contour_area: float = 10.0,               # Minimum area for a polygon to be included.
+    max_features_to_render: int = 0               # Max number of polygons (0 for unlimited).
 ) -> str:
     """
     Converts a PIL Image object to an SVG string using the C++ backend.
 
     The C++ backend handles color quantization, contour detection, polygon simplification,
-    and SVG generation. If compiled with appropriate support (e.g., CUDA, FAISS) and
+    and SVG generation. If compiled with appropriate support (e.g., CUDA, FAISS GPU) and
     a compatible GPU is available, the C++ backend may utilize GPU acceleration for
     computationally intensive tasks like color quantization. Otherwise, it will
-    default to CPU-based processing.
+    default to CPU-based processing (e.g., OpenCV k-means).
 
     Args:
         image: The input PIL.Image.Image object.
@@ -51,11 +51,12 @@ def bitmap_to_svg(
     Raises:
         TypeError: If the input 'image' is not a PIL.Image.Image instance.
         ValueError: If 'target_size' is not valid.
-        ImportError: If the C++ core module ('bitmap2svg_core') cannot be imported
-                     or was not found during initial package load.
+        ImportError: If the C++ core module ('bitmap2svg_core') could not be loaded initially.
+        AttributeError: If bitmap2svg_core was loaded as None and its functions are called.
         RuntimeError: If an error occurs during the C++ processing (e.g., memory issues,
                       invalid input to C++ function after Python-side checks).
     """
+
     if not isinstance(image, Image.Image):
         raise TypeError("Input 'image' must be a PIL.Image.Image instance.")
 
@@ -70,7 +71,7 @@ def bitmap_to_svg(
 
     if resize:
         # print(f"Resizing image from {processed_image.size} to {target_size}", file=sys.stderr)
-        processed_image = processed_image.resize(target_size, Image.Resampling.LANCZOS) 
+        processed_image = processed_image.resize(target_size, Image.Resampling.LANCZOS)
 
     # Ensure the image is in RGB format, as C++ expects 3 channels (R, G, B).
     if processed_image.mode != 'RGB':
@@ -100,23 +101,24 @@ def bitmap_to_svg(
             simplification_epsilon_factor=simplification_epsilon_factor,
             min_contour_area=min_contour_area,
             max_features_to_render=max_features_to_render,
-            original_width_py=original_pil_width,   # To set SVG's 'width' attribute
-            original_height_py=original_pil_height # To set SVG's 'height' attribute
+            original_svg_width=original_pil_width,   # For SVG's 'width' attribute
+            original_svg_height=original_pil_height # For SVG's 'height' attribute
         )
-    except ImportError:
+    except ImportError as e_runtime: 
         print(
-            f"Failed to import bitmap2svg_core: {e}\n"
-            "Please ensure the C++ module is compiled correctly and is in the PYTHONPATH "
-            "or the current working directory structure (e.g., part of the 'bitmap2svg' package).",
+            f"Runtime import error for bitmap2svg_core: {e_runtime}\n"
+            "This should have been caught at package load. Please check the environment.",
             file=sys.stderr
         )
-        # Re-raise the exception so the user knows the import failed critically.
         raise
-    except RuntimeError as e: # Catch errors from C++ (e.g., std::runtime_error exposed by pybind11)
-        print(f"A runtime error occurred during C++ SVG conversion: {e}", file=sys.stderr)
+    except AttributeError as e_attr: # If bitmap2svg_core is None and methods are called
+        print(f"The C++ module 'bitmap2svg_core' was not loaded correctly: {e_attr}", file=sys.stderr)
+        raise ImportError("bitmap2svg_core module not available or not loaded.") from e_attr
+    except RuntimeError as e_cpp: # Catch errors from C++ (e.g., std::runtime_error exposed by pybind11)
+        print(f"A runtime error occurred during C++ SVG conversion: {e_cpp}", file=sys.stderr)
         raise # Re-raise to signal failure to the caller
-    except Exception as e: # Catch any other unexpected Python-level errors during the call
-        print(f"An unexpected Python error occurred calling the C++ module: {e}", file=sys.stderr)
+    except Exception as e_other: # Catch any other unexpected Python-level errors during the call
+        print(f"An unexpected Python error occurred calling the C++ module: {e_other}", file=sys.stderr)
         raise
 
     return svg_code
@@ -212,11 +214,10 @@ if __name__ == '__main__':
 
         print("\nAll examples finished. Check the .svg files.")
 
-    except ImportError:
-        # This will be triggered if the bitmap2svg_core module was mocked due to import failure.
-        # The original detailed error message would have been printed when the module was first loaded.
-        print("\nCritical Error: The 'bitmap2svg_core' C++ module could not be imported.", file=sys.stderr)
-        print("Please check the build and installation steps.", file=sys.stderr)
+    except (ImportError, AttributeError): # Catch if bitmap2svg_core was not loaded
+        # The original detailed error message would have been printed when the module was first loaded or attempted to be used.
+        print("\nCritical Error: The 'bitmap2svg_core' C++ module could not be used.", file=sys.stderr)
+        print("Please check the build and installation steps, and previous error messages.", file=sys.stderr)
     except Exception as e:
         print(f"\nAn unexpected error occurred in the example usage: {e}", file=sys.stderr)
         import traceback

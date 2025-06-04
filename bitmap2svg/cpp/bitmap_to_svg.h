@@ -5,8 +5,10 @@
 #include <vector>
 #include <opencv2/core/types.hpp> // For cv::Point
 
-// Define a simple Color structure for palette colors (R, G, B)
+// Define a simple Color structure for palette colors (R, G, B).
 // This structure is used to represent colors in the generated palette.
+// Note: Internally, OpenCV might use BGR, but this struct and the
+// final SVG colors are consistently RGB.
 struct Color {
     unsigned char r; // Red channel
     unsigned char g; // Green channel
@@ -17,14 +19,14 @@ struct Color {
 // Each SvgFeature typically corresponds to a colored polygon in the final SVG.
 struct SvgFeature {
     std::vector<cv::Point> points; // Simplified contour points (from cv::approxPolyDP) defining the polygon.
-    std::string color_hex;         // Compressed hex color string (e.g., "#RRGGBB" or "#RGB") for the fill.
+    std::string color_hex;         // Compressed hex color string (e.g., "#RRGGBB" or "#RGB") for the fill (RGB format).
     double area;                   // Area of the original contour, used for importance calculation.
     double importance;             // Calculated importance score for sorting features (larger is more important).
 
     // Custom comparator to sort features by importance in descending order.
     // This allows rendering more important features first or selectively.
     bool operator<(const SvgFeature& other) const {
-        return importance > other.importance;
+        return importance > other.importance; // Sorts in descending order of importance
     }
 };
 
@@ -33,8 +35,8 @@ struct SvgFeature {
  *
  * This function handles the entire process:
  * 1. Adaptive color quantization using k-means. This step can be GPU-accelerated
- * (e.g., using FAISS) if the library is compiled with appropriate support and
- * a compatible GPU is available at runtime; otherwise, it defaults to a CPU implementation.
+ * (e.g., using FAISS GPU) if the library is compiled with appropriate support (`WITH_FAISS_GPU` defined)
+ * and a compatible GPU is available at runtime; otherwise, it defaults to a CPU implementation (OpenCV k-means).
  * 2. Contour detection for each dominant color in the quantized image.
  * 3. Polygon simplification of detected contours using cv::approxPolyDP.
  * 4. Calculation of a heuristic "importance" score for each feature (based on area, centrality, complexity).
@@ -49,32 +51,19 @@ struct SvgFeature {
  * @param num_colors_hint Desired number of dominant colors for the quantization step.
  * If this value is less than or equal to 0, an adaptive number of colors will be
  * chosen automatically based on the image size (typically between 6 and 12).
- * Otherwise, the specified number of colors (up to a reasonable limit like 256)
- * will be targeted. The actual number of colors in the output SVG may be less
- * if k-means converges to fewer distinct centers or if some colors result in
- * no significant contours.
+ * Otherwise, the specified number of colors (clamped between 1 and 256)
+ * will be targeted. The actual number of colors in the output SVG may be less.
  * @param simplification_epsilon_factor Factor to determine the epsilon for cv::approxPolyDP,
- * relative to the contour's arc length. A smaller value (e.g., 0.001) means
- * less simplification (more points, more detail), while a larger value (e.g., 0.02)
- * means more simplification (fewer points, less detail). Default: 0.009.
+ * relative to the contour's arc length. Default: 0.009.
  * @param min_contour_area Minimum area (in pixels squared) for a contour to be considered
- * significant enough to be rendered as an SVG feature. Contours smaller than this
- * will be ignored. Default: 10.0.
+ * significant enough to be rendered. Default: 10.0.
  * @param max_features_to_render Maximum number of polygon features to render in the SVG.
- * Features are rendered in order of decreasing importance. If this value is
- * less than or equal to 0, all features that meet other criteria (like min_contour_area
- * and SVG size limits) will be attempted to be rendered. Default: 0 (no explicit limit).
- * @param original_svg_width Desired width to be set in the SVG's root `width` attribute.
- * If less than or equal to 0, the processed (quantized) image width is used.
- * This affects the display size of the SVG but not its internal coordinate system
- * defined by the `viewBox`. Default: -1.
- * @param original_svg_height Desired height to be set in the SVG's root `height` attribute.
- * If less than or equal to 0, the processed (quantized) image height is used.
- * This affects the display size of the SVG but not its internal coordinate system
- * defined by the `viewBox`. Default: -1.
- * @return A string containing the generated SVG code. If an error occurs (e.g., invalid
- * dimensions, quantization failure), an SVG string containing an error message
- * may be returned.
+ * Rendered in order of decreasing importance. If <= 0, no explicit limit. Default: 0.
+ * @param original_svg_width Desired width for the SVG's root `width` attribute.
+ * If <= 0, processed image width is used. Affects display size, not viewBox. Default: -1.
+ * @param original_svg_height Desired height for the SVG's root `height` attribute.
+ * If <= 0, processed image height is used. Affects display size, not viewBox. Default: -1.
+ * @return A string containing the generated SVG code. Returns an error SVG if issues occur.
  */
 std::string bitmapToSvg_with_internal_quantization(
     const unsigned char* raw_bitmap_data_rgb_ptr,
