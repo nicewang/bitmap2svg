@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.18) # Faiss might require 3.18+
-project(bitmap2svg_cpp LANGUAGES CXX CUDA) # Add CUDA as a language here if not already
+project(bitmap2svg_cpp LANGUAGES CXX) # Removed CUDA language here, will add conditionally if true CUDA toolkit is found
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -16,8 +16,9 @@ if(NOT CMAKE_CUDA_ARCHITECTURES)
 endif()
 
 # --- Options for local development / system search fallback ---
-option(DEVSYS_USE_CUDA "Enable CUDA if found on system (for OpenCV, and Faiss if system Faiss is used)" ON)
-option(DEVSYS_USE_FAISS_GPU "Enable FAISS GPU if system Faiss is found and supports GPU (requires DEVSYS_USE_CUDA)" ON)
+# For Kaggle, we'll generally disable system CUDA/Faiss GPU search by default
+option(DEVSYS_USE_CUDA "Enable CUDA if found on system (for OpenCV, and Faiss if system Faiss is used)" OFF) # Set to OFF by default for Kaggle
+option(DEVSYS_USE_FAISS_GPU "Enable FAISS GPU if system Faiss is found and supports GPU (requires DEVSYS_USE_CUDA)" OFF) # Set to OFF by default for Kaggle
 
 # --- Variables from Python build environment ---
 set(PYTHON_FAISS_INCLUDE_DIR "" CACHE PATH "Path to Faiss include directory from Python package")
@@ -36,46 +37,38 @@ set(FAISS_LIBRARIES_TO_LINK "")
 # This section tries to ensure CUDA is found if any component (Python Faiss GPU, System Faiss GPU, OpenCV CUDA) might need it.
 set(CUDA_REQUESTED FALSE)
 if(MYPROJECT_PREFER_PYTHON_FAISS AND PYTHON_FAISS_IS_GPU_ENABLED)
+    # If Python Faiss is GPU enabled, we need CUDA Toolkit for it.
     set(CUDA_REQUESTED TRUE)
+    message(STATUS "Python Faiss is GPU enabled, requesting CUDA Toolkit.")
 endif()
 if(DEVSYS_USE_CUDA) # User explicitly wants system CUDA for OpenCV or system Faiss
     set(CUDA_REQUESTED TRUE)
+    message(STATUS "DEVSYS_USE_CUDA is ON, requesting CUDA Toolkit.")
 endif()
 
 if(CUDA_REQUESTED)
-    # Enabling CUDA language at the project level handles find_package(CUDA) implicitly in modern CMake.
-    # However, an explicit find_package can still be useful for messages or specific checks.
-    if(NOT CMAKE_CUDA_COMPILER) # If CUDA language was not enabled at project level or failed
-        find_package(CUDA QUIET) # Try to find it
-    endif()
-
-    if(CUDA_FOUND OR CMAKE_CUDA_COMPILER_LOADED) # CMAKE_CUDA_COMPILER_LOADED is true if enable_language(CUDA) worked
+    # Explicitly enable CUDA language only if needed and CUDA can be found.
+    # This ensures CMAKE_CUDA_COMPILER is set and related variables are populated.
+    find_package(CUDA QUIET) # Try to find CUDA Toolkit
+    if(CUDA_FOUND) # If CUDA Toolkit is found, then enable the language
+        enable_language(CUDA) # Enables CUDA compiler for the project
         set(WITH_CUDA_ENABLED TRUE)
-        # CUDA_TOOLKIT_ROOT_DIR and CUDA_VERSION should be set by FindCUDA or enable_language(CUDA)
-        if(NOT CUDA_TOOLKIT_ROOT_DIR AND DEFINED CMAKE_CUDA_TOOLKIT_ROOT_DIR) # CMake 3.20+ sets this
-           set(CUDA_TOOLKIT_ROOT_DIR ${CMAKE_CUDA_TOOLKIT_ROOT_DIR})
-        endif()
-        if(NOT CUDA_VERSION AND DEFINED CMAKE_CUDA_COMPILER_VERSION)
-            set(CUDA_VERSION ${CMAKE_CUDA_COMPILER_VERSION})
-        endif()
-        message(STATUS "CUDA Toolkit appears to be configured.")
+        message(STATUS "CUDA Toolkit found and configured (via find_package and enable_language).")
         message(STATUS "  CUDA Root Dir (approx): ${CUDA_TOOLKIT_ROOT_DIR}")
         message(STATUS "  CUDA Version (approx): ${CUDA_VERSION}")
         message(STATUS "  CUDA Architectures: ${CMAKE_CUDA_ARCHITECTURES}")
-        # CUDA_INCLUDE_DIRS should be set by now.
         if(NOT CUDA_INCLUDE_DIRS AND DEFINED CMAKE_CUDA_IMPLICIT_INCLUDE_DIRECTORIES)
             set(CUDA_INCLUDE_DIRS ${CMAKE_CUDA_IMPLICIT_INCLUDE_DIRECTORIES})
         endif()
         message(STATUS "  CUDA Include Dirs (approx): ${CUDA_INCLUDE_DIRS}")
-
     else()
-        message(WARNING "CUDA Toolkit not found, but was requested. CUDA-dependent features will be disabled.")
+        message(WARNING "CUDA Toolkit not found, but was requested (e.g., by Python Faiss GPU). CUDA-dependent features will be disabled.")
         if(PYTHON_FAISS_IS_GPU_ENABLED)
             message(WARNING "Python Faiss is GPU enabled, but CUDA Toolkit not found by CMake. FAISS GPU will likely fail.")
         endif()
     endif()
 else()
-    message(STATUS "CUDA support is not requested.")
+    message(STATUS "CUDA support is not requested for C++ compilation (only if Python Faiss GPU is NOT used and DEVSYS_USE_CUDA is OFF).")
 endif()
 
 
@@ -93,11 +86,11 @@ if(MYPROJECT_PREFER_PYTHON_FAISS AND PYTHON_FAISS_INCLUDE_DIR AND PYTHON_FAISS_L
         message(STATUS "  Include Dir: ${PYTHON_FAISS_INCLUDE_DIR}")
         message(STATUS "  Library Path: ${PYTHON_FAISS_LIBRARY_PATH}")
         if(PYTHON_FAISS_IS_GPU_ENABLED)
-            if(WITH_CUDA_ENABLED) # Crucial check!
+            if(WITH_CUDA_ENABLED) # Crucial check! Ensure CUDA Toolkit was actually found
                 set(WITH_FAISS_GPU_ENABLED TRUE)
                 message(STATUS "  Python Faiss is GPU enabled and CUDA is available.")
             else()
-                message(WARNING "Python Faiss is GPU enabled, but CUDA is NOT available/configured. Disabling FAISS GPU features.")
+                message(WARNING "Python Faiss is GPU enabled, but CUDA is NOT available/configured by CMake. Disabling FAISS GPU features for C++ compilation.")
             endif()
         else()
             message(STATUS "  Python Faiss is CPU only.")
@@ -107,7 +100,7 @@ if(MYPROJECT_PREFER_PYTHON_FAISS AND PYTHON_FAISS_INCLUDE_DIR AND PYTHON_FAISS_L
     endif()
 # Ensure this fallback also checks WITH_CUDA_ENABLED before setting WITH_FAISS_GPU_ENABLED.
 # Example for system Faiss fallback (simplified):
-elif(DEVSYS_USE_FAISS_GPU) # Fallback to system Faiss search
+elseif(DEVSYS_USE_FAISS_GPU) # Fallback to system Faiss search
     if(WITH_CUDA_ENABLED)
         find_package(Faiss QUIET)
         if(FAISS_FOUND)
@@ -126,18 +119,19 @@ endif()
 
 
 # --- OpenCV ---
-# (Largely same, ensure it respects WITH_CUDA_ENABLED for requesting CUDA components)
 set(OpenCV_REQUIRED_COMPONENTS core imgproc)
-if(WITH_CUDA_ENABLED) # Only request OpenCV CUDA modules if our CUDA is enabled
-    list(APPEND OpenCV_REQUIRED_COMPONENTS cudaarithm cudaimgproc cudev)
-endif()
+# --- REMOVED THE FOLLOWING LINES TO AVOID CUDA OpenCV REQUIREMENT ---
+# if(WITH_CUDA_ENABLED) # Only request OpenCV CUDA modules if our CUDA is enabled
+#     list(APPEND OpenCV_REQUIRED_COMPONENTS cudaarithm cudaimgproc cudev)
+# endif()
+# --------------------------------------------------------------------
 find_package(OpenCV REQUIRED COMPONENTS ${OpenCV_REQUIRED_COMPONENTS})
 message(STATUS "OpenCV version: ${OpenCV_VERSION}")
-if(WITH_CUDA_ENABLED AND NOT OpenCV_cudaarithm_FOUND) 
-    message(WARNING "OpenCV CUDA components (e.g., cudaarithm) not found in your OpenCV build, despite CUDA being available. OpenCV operations will be CPU-only.")
-    # Note: We don't set WITH_CUDA_ENABLED to FALSE here, as Faiss GPU might still be usable independently.
-    # The C++ code might have #ifdefs for OpenCV CUDA parts.
-endif()
+# The following warning will now only be triggered if a CUDA-enabled OpenCV was somehow found AND it's missing specific components,
+# but our primary goal is to avoid requesting them in the first place.
+# if(WITH_CUDA_ENABLED AND NOT OpenCV_cudaarithm_FOUND)
+#     message(WARNING "OpenCV CUDA components (e.g., cudaarithm) not found in your OpenCV build, despite CUDA being available. OpenCV operations will be CPU-only.")
+# endif()
 
 
 # --- pybind11 ---
