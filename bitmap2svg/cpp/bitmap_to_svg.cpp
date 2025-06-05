@@ -15,7 +15,7 @@
 #endif
 
 #ifdef WITH_FAISS_GPU // For FAISS GPU K-Means
-#include <faiss/gpu/GpuClustering.h>
+// #include <faiss/gpu/GpuClustering.h>
 #include <faiss/gpu/GpuIndexFlat.h> // For GpuIndexFlatL2
 #include <faiss/gpu/StandardGpuResources.h>
 #include <faiss/Clustering.h>    // For faiss::ClusteringParameters and faiss::Clustering
