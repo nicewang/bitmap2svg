@@ -20,7 +20,9 @@ set(WITH_CUDA_ENABLED FALSE)
 set(WITH_FAISS_LIBRARY_FOUND FALSE)
 set(WITH_FAISS_GPU_ENABLED FALSE)
 set(FAISS_INCLUDE_DIRS_TO_USE "")
-set(FAISS_LIBRARIES_TO_LINK "")
+# FAISS_LIBRARIES_TO_LINK will now be the name of our IMPORTED target
+set(FAISS_LIBRARIES_TO_LINK "") # Initialize to empty
+
 
 set(CUDA_REQUESTED FALSE)
 if(PYTHON_FAISS_IS_GPU_ENABLED)
@@ -57,7 +59,7 @@ else()
 endif()
 
 
-# --- Faiss Detection (prioritizing manual headers and _swigfaiss.so) ---
+# --- Faiss Detection ---
 
 # 1. Locate Faiss C++ Headers
 set(MANUAL_FAISS_HEADERS_DIR "${CMAKE_CURRENT_SOURCE_DIR}/external/faiss_headers")
@@ -74,7 +76,6 @@ find_path(FAISS_INCLUDE_DIR_LOCATED
 
 if(FAISS_INCLUDE_DIR_LOCATED)
     set(FAISS_INCLUDE_DIRS_TO_USE "${FAISS_INCLUDE_DIR_LOCATED}")
-    set(WITH_FAISS_LIBRARY_FOUND TRUE)
     message(STATUS "Found Faiss C++ Headers at: ${FAISS_INCLUDE_DIRS_TO_USE}")
 else()
     message(FATAL_ERROR "Faiss C++ Headers (faiss/Index.h) not found. Please ensure they are correctly placed in '${MANUAL_FAISS_HEADERS_DIR}' or a system path.")
@@ -82,9 +83,9 @@ endif()
 
 
 # 2. Locate Faiss C++ Library (_swigfaiss.cpython-310-x86_64-linux-gnu.so)
-set(FAISS_LIB_CANDIDATES
-    "/usr/local/lib/python3.10/dist-packages/faiss"
-    "/usr/local/lib/python3.10/dist-packages/faiss_gpu.libs"
+set(FAISS_LIB_SEARCH_PATHS
+    "/usr/local/lib/python3.10/dist-packages/faiss" # Specific path for _swigfaiss.so
+    "/usr/local/lib/python3.10/dist-packages/faiss_gpu.libs" # Common for underlying libfaiss.so if exists
     "/usr/local/lib"
     "/usr/local/cuda/lib64"
     "/opt/conda/lib"
@@ -94,24 +95,36 @@ set(FAISS_LIB_CANDIDATES
 # Use find_file to locate the exact .so file by its full name
 find_file(FAISS_SWIG_LIBRARY_PATH
           NAMES _swigfaiss.cpython-310-x86_64-linux-gnu.so
-          PATHS ${FAISS_LIB_CANDIDATES}
+          PATHS ${FAISS_LIB_SEARCH_PATHS}
           DOC "Path to the _swigfaiss.cpython-310-x86_64-linux-gnu.so library"
 )
 
 if(FAISS_SWIG_LIBRARY_PATH)
-    set(FAISS_LIBRARIES_TO_LINK "${FAISS_SWIG_LIBRARY_PATH}")
-    message(STATUS "Found Faiss SWIG Library at: ${FAISS_LIBRARIES_TO_LINK}")
-    set(WITH_FAISS_LIBRARY_FOUND TRUE)
+    message(STATUS "Found Faiss SWIG Library at: ${FAISS_SWIG_LIBRARY_PATH}")
+
+    # --- Define an IMPORTED Library Target for Faiss ---
+    # This is the key to solving the linking issue with non-standard names.
+    add_library(FaissPythonSwigLib SHARED IMPORTED)
+    set_property(TARGET FaissPythonSwigLib PROPERTY IMPORTED_LOCATION "${FAISS_SWIG_LIBRARY_PATH}")
+    # You might also need to set IMPORTED_LINK_INTERFACE_LIBRARIES if _swigfaiss.so itself has further dependencies
+    # For now, let's assume it encapsulates its dependencies or they are implicitly handled.
+
+    set(FAISS_LIBRARIES_TO_LINK "FaissPythonSwigLib") # Now link by the target name
+    set(WITH_FAISS_LIBRARY_FOUND TRUE) # Library found
 
     if(PYTHON_FAISS_IS_GPU_ENABLED AND WITH_CUDA_ENABLED)
         set(WITH_FAISS_GPU_ENABLED TRUE)
         message(STATUS "Faiss library is SWIG (GPU enabled) and CUDA is available.")
+        # If this imported library has explicit CUDA runtime dependencies that are not
+        # resolved by the linker (e.g., if it expects -lcudart), you might need to
+        # make it a dependency of this imported library itself, or link it later.
+        # For now, we link cudart explicitly to bitmap2svg_core.
     else()
         message(STATUS "Faiss SWIG library found, but either Python indicated CPU only, or CUDA Toolkit is NOT available. Faiss GPU features will be disabled for C++ compilation.")
     endif()
 else()
     message(FATAL_ERROR "Faiss SWIG Library '_swigfaiss.cpython-310-x86_64-linux-gnu.so' not found. "
-                        "Please verify its path or your faiss-gpu installation. Searched in: ${FAISS_LIB_CANDIDATES}")
+                        "Please verify its path or your faiss-gpu installation. Searched in: ${FAISS_LIB_SEARCH_PATHS}")
 endif()
 
 # --- OpenCV ---
@@ -159,23 +172,16 @@ target_link_libraries(bitmap2svg_core PRIVATE
     ${OpenCV_LIBS}
 )
 
-# This is the crucial part for linking the _swigfaiss.so file directly.
-# Add the directory containing the .so file to the linker search path.
-# This ensures that if -l is used, it can find the file,
-# OR if the full path is passed, it correctly resolves internal dependencies.
-get_filename_component(FAISS_LIB_DIR "${FAISS_LIBRARIES_TO_LINK}" DIRECTORY)
-if(FAISS_LIB_DIR)
-    link_directories(${FAISS_LIB_DIR})
-    message(STATUS "Added Faiss Library directory to linker search path: ${FAISS_LIB_DIR}")
-endif()
-
-# Now, link the library. By passing the full path, CMake should instruct the linker to use it directly.
+# Now, link by the name of the IMPORTED target.
+# CMake will handle the full path and ensure proper linking without -l prefix issues.
 if(WITH_FAISS_LIBRARY_FOUND AND FAISS_LIBRARIES_TO_LINK)
     target_link_libraries(bitmap2svg_core PRIVATE ${FAISS_LIBRARIES_TO_LINK})
-    message(STATUS "Linking target with FAISS library (full path): ${FAISS_LIBRARIES_TO_LINK}")
+    message(STATUS "Linking target with FAISS imported library: ${FAISS_LIBRARIES_TO_LINK}")
 
     if(WITH_FAISS_GPU_ENABLED AND WITH_CUDA_ENABLED)
         message(STATUS "Linking Faiss GPU features to CUDA Runtime.")
+        # Ensure CUDA::cudart is linked.
+        # It's crucial for any CUDA-dependent code, including Faiss's GPU usage.
         find_package(CUDAToolkit QUIET COMPONENTS Runtime)
         if(CUDAToolkit_FOUND AND TARGET CUDA::cudart)
             target_link_libraries(bitmap2svg_core PRIVATE CUDA::cudart)
@@ -206,7 +212,7 @@ message(STATUS "Effective Faiss Library Found (WITH_FAISS_LIBRARY_FOUND): ${WITH
 if(WITH_FAISS_LIBRARY_FOUND)
     message(STATUS "  Effective Faiss GPU Enabled (WITH_FAISS_GPU_ENABLED): ${WITH_FAISS_GPU_ENABLED}")
     message(STATUS "  Faiss Include Dirs Used: ${FAISS_INCLUDE_DIRS_TO_USE}")
-    message(STATUS "  Faiss Libraries Linked: ${FAISS_LIBRARIES_TO_LINK}")
-    message(STATUS "  Faiss Library Directory Added to Linker Search: ${FAISS_LIB_DIR}")
+    message(STATUS "  Faiss Libraries Linked (Target Name): ${FAISS_LIBRARIES_TO_LINK}")
+    message(STATUS "  Actual Faiss SWIG Library Path: ${FAISS_SWIG_LIBRARY_PATH}")
 endif()
 message(STATUS "---------------------------")
