@@ -20,12 +20,85 @@ endif()
 option(DEVSYS_USE_CUDA "Enable CUDA if found on system (for OpenCV, and Faiss if system Faiss is used)" OFF) # Default OFF for build environment
 option(DEVSYS_USE_FAISS_GPU "Enable FAISS GPU if system Faiss is found and supports GPU (requires DEVSYS_USE_CUDA)" OFF) # Default OFF for build environment
 
-# --- Variables from Python build environment ---
-set(PYTHON_FAISS_INCLUDE_DIR "" CACHE PATH "Path to Faiss include directory from Python package")
-set(PYTHON_FAISS_LIBRARY_PATH "" CACHE FILEPATH "Path to Faiss library file from Python package")
-set(PYTHON_FAISS_IS_GPU_ENABLED OFF CACHE BOOL "Whether the Python Faiss package is GPU enabled")
+# --- Variables from Python build environment (now potentially set by probe script) ---
+# These initial CACHE definitions act as defaults or placeholders
+set(PYTHON_FAISS_INCLUDE_DIR "" CACHE PATH "Path to Faiss include directory from Python package (auto-detected or manual)")
+set(PYTHON_FAISS_LIBRARY_PATH "" CACHE FILEPATH "Path to Faiss library file from Python package (auto-detected or manual)")
+set(PYTHON_FAISS_IS_GPU_ENABLED OFF CACHE BOOL "Whether the Python Faiss package is GPU enabled (auto-detected or manual)")
 option(MYPROJECT_PREFER_PYTHON_FAISS "Prefer Faiss from Python environment if paths are provided" ON)
 
+# --- Attempt to auto-detect Faiss paths using a Python script ---
+# This section will try to overwrite the above CACHE variables if the script succeeds.
+if(MYPROJECT_PREFER_PYTHON_FAISS) # Only run probe if we prefer Python Faiss
+    set(FAISS_PROBE_SCRIPT "${CMAKE_CURRENT_SOURCE_DIR}/cmake/find_faiss_paths.py")
+    if(EXISTS "${FAISS_PROBE_SCRIPT}")
+        find_package(Python3 COMPONENTS Interpreter REQUIRED)
+        if(Python3_EXECUTABLE)
+            message(STATUS "Attempting to auto-detect Faiss paths using Python script: ${FAISS_PROBE_SCRIPT}")
+            execute_process(
+                COMMAND "${Python3_EXECUTABLE}" "${FAISS_PROBE_SCRIPT}"
+                RESULT_VARIABLE _faiss_probe_result
+                OUTPUT_VARIABLE _faiss_probe_output # KEY=VALUE;KEY=VALUE
+                ERROR_VARIABLE _faiss_probe_error
+                OUTPUT_STRIP_TRAILING_WHITESPACE
+            )
+
+            if(_faiss_probe_result EQUAL 0 AND _faiss_probe_output)
+                message(STATUS "Faiss probe script successful. Output: ${_faiss_probe_output}")
+                # Split the output string by semicolon into a list of KEY=VALUE pairs
+                string(REPLACE ";" _list_separator "${_faiss_probe_output}" _key_value_list)
+
+                foreach(_key_value_pair ${_key_value_list})
+                    if(_key_value_pair MATCHES "([^=]+)=(.+)")
+                        set(_key "${CMAKE_MATCH_1}")
+                        set(_value "${CMAKE_MATCH_2}")
+                        message(STATUS "  Probe found: ${_key} = ${_value}")
+                        # Determine CACHE type based on key name (optional, could just use STRING)
+                        if(_key STREQUAL "PYTHON_FAISS_INCLUDE_DIR")
+                            set(${_key} "${_value}" CACHE PATH "Path from Faiss probe script" FORCE)
+                        elseif(_key STREQUAL "PYTHON_FAISS_LIBRARY_PATH")
+                            set(${_key} "${_value}" CACHE FILEPATH "Path from Faiss probe script" FORCE)
+                        elseif(_key STREQUAL "PYTHON_FAISS_IS_GPU_ENABLED")
+                            # CMake set(CACHE BOOL ...) expects ON/OFF or TRUE/FALSE
+                            if("${_value}" STREQUAL "ON" OR "${_value}" STREQUAL "OFF" OR
+                               "${_value}" STREQUAL "TRUE" OR "${_value}" STREQUAL "FALSE" OR
+                               "${_value}" STREQUAL "1" OR "${_value}" STREQUAL "0")
+                                set(${_key} "${_value}" CACHE BOOL "Status from Faiss probe script" FORCE)
+                            else()
+                                message(WARNING "  Faiss probe script returned invalid BOOL for ${_key}: ${_value}. Using OFF.")
+                                set(${_key} OFF CACHE BOOL "Status from Faiss probe script (fallback)" FORCE)
+                            endif()
+                        else()
+                            # For any other unexpected keys, just set as string
+                            set(${_key} "${_value}" CACHE STRING "Value from Faiss probe script" FORCE)
+                        endif()
+                    else()
+                        message(WARNING "  Faiss probe script returned malformed pair: ${_key_value_pair}")
+                    endif()
+                endforeach()
+                if(_faiss_probe_error) # Print stderr from script if any
+                    message(WARNING "Faiss probe script stderr:\n${_faiss_probe_error}")
+                endif()
+            else()
+                message(WARNING "Faiss probe script execution failed or produced no output.")
+                if(NOT _faiss_probe_result EQUAL 0)
+                    message(WARNING "  Result: ${_faiss_probe_result}")
+                endif()
+                if(NOT _faiss_probe_output)
+                     message(WARNING "  Output: <empty>")
+                endif()
+                if(_faiss_probe_error)
+                    message(WARNING "  Error output:\n${_faiss_probe_error}")
+                endif()
+                message(WARNING "Proceeding with default/manual Faiss path settings if any.")
+            endif()
+        else()
+            message(WARNING "Python3 interpreter not found. Cannot run Faiss probe script.")
+        endif()
+    else()
+        message(STATUS "Faiss probe script not found at ${FAISS_PROBE_SCRIPT}. Skipping auto-detection.")
+    endif()
+endif()
 
 # --- Final decision flags ---
 set(WITH_CUDA_ENABLED FALSE)
