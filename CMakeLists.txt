@@ -78,6 +78,7 @@ else()
     message(STATUS "Faiss not found via CMake find_package. Attempting manual paths (common for Kaggle/pip-installed Faiss-GPU setups).")
 
     set(FAISS_INCLUDE_CANDIDATES
+        "${CMAKE_CURRENT_SOURCE_DIR}/external/faiss_headers"
         "/usr/local/include" # Faiss headers might be here: /usr/local/include/faiss/Index.h
         "/usr/include"
     )
