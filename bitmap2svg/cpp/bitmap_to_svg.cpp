@@ -22,6 +22,12 @@
 #include "faiss/Index.h"         // To get faiss::Index and faiss::idx_t (using 'Index.h' as per your last attempt)
 #endif
 
+// --- TEMPORARY DEBUGGING CODE ---
+#ifndef FAISS_INDEX_H
+#pragma message("WARNING: faiss/Index.h (or index.h) does NOT define FAISS_INDEX_H. This might indicate an incomplete or incorrect header.")
+#endif
+// --- END TEMPORARY DEBUGGING CODE ---
+
 // Define the SVG size constraint
 const long MAX_SVG_SIZE_BYTES = 10000;
 const long SVG_SIZE_SAFETY_MARGIN = 1000; // Buffer to stop before hitting the absolute max
