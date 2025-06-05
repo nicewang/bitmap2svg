@@ -130,9 +130,9 @@ endif()
 
 # --- OpenCV ---
 set(OpenCV_REQUIRED_COMPONENTS core imgproc)
-if(WITH_CUDA_ENABLED) # Only request OpenCV CUDA modules if our CUDA is enabled
-    list(APPEND OpenCV_REQUIRED_COMPONENTS cudaarithm cudaimgproc cudev)
-endif()
+# if(WITH_CUDA_ENABLED) # Only request OpenCV CUDA modules if our CUDA is enabled
+#     list(APPEND OpenCV_REQUIRED_COMPONENTS cudaarithm cudaimgproc cudev)
+# endif()
 find_package(OpenCV REQUIRED COMPONENTS ${OpenCV_REQUIRED_COMPONENTS})
 message(STATUS "OpenCV version: ${OpenCV_VERSION}")
 
