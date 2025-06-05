@@ -8,9 +8,9 @@
 #include <iomanip>
 #include <string>
 #ifdef WITH_CUDA // For OpenCV CUDA modules
-#include <opencv2/cudaarithm.hpp>
-#include <opencv2/cudaimgproc.hpp>
-#include "opencv2/cudev/common.hpp" // For cv::cuda::Stream
+// #include <opencv2/cudaarithm.hpp>
+// #include <opencv2/cudaimgproc.hpp>
+// #include "opencv2/cudev/common.hpp" // For cv::cuda::Stream
 #endif
 
 #ifdef WITH_FAISS_GPU // For FAISS GPU K-Means
