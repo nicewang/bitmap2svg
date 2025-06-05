@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <iomanip>
 #include <string>
+
 #ifdef WITH_CUDA // For OpenCV CUDA modules
 // #include <opencv2/cudaarithm.hpp>
 // #include <opencv2/cudaimgproc.hpp>
@@ -17,7 +18,7 @@
 #include <faiss/gpu/GpuClustering.h>
 #include <faiss/gpu/GpuIndexFlat.h> // For GpuIndexFlatL2
 #include <faiss/gpu/StandardGpuResources.h>
-#include <faiss/Clustering.h> // For faiss::ClusteringParameters and faiss::Clustering
+#include <faiss/Clustering.h>    // For faiss::ClusteringParameters and faiss::Clustering
 #include <faiss/FaissException.h> // For faiss::FaissException
 #endif
 
@@ -30,8 +31,6 @@ std::string compress_hex_color_cpp(unsigned char r, unsigned char g, unsigned ch
     std::stringstream ss;
     ss << "#";
     // Check if color can be compressed to #RGB format
-    // This happens if R, G, and B are all multiples of 17 (0x11)
-    // e.g., 0xAA -> 0xA, 0x33 -> 0x3
     if (r % 17 == 0 && g % 17 == 0 && b % 17 == 0 &&
         (r / 17) < 16 && (g / 17) < 16 && (b / 17) < 16) { // Ensure single digit hex
         ss << std::hex << (r / 17) << (g / 17) << (b / 17);
@@ -64,118 +63,138 @@ std::pair<cv::Mat, std::vector<Color>> perform_color_quantization_cpp(
     k = std::max(1, std::min(k, 256)); // Clamp k to a reasonable range
 
 #ifdef WITH_FAISS_GPU
-    if (cv::cuda::getCudaEnabledDeviceCount() > 0) {
-        std::cout << "Attempting FAISS GPU K-Means path." << std::endl;
-        try {
-            faiss::gpu::StandardGpuResources res; // GPU resources for FAISS
+    // Attempt FAISS GPU path first.
+    // This path no longer relies on OpenCV's CUDA capabilities (like cv::cuda::GpuMat or getCudaEnabledDeviceCount).
+    // It passes CPU data to FAISS, and FAISS handles its own GPU interaction.
+    try {
+        // Attempt to initialize FAISS GPU resources.
+        // If this fails (e.g., no CUDA GPU available for FAISS), it will throw an exception.
+        faiss::gpu::StandardGpuResources res;
+        // If resources initialized, it implies a CUDA device was usable by FAISS.
+        std::cout << "FAISS GPU resources initialized. Attempting FAISS K-Means." << std::endl;
 
-            cv::Mat input_float_bgr; // Faiss operates on float data
-            input_img_bgr.convertTo(input_float_bgr, CV_32FC3);
+        cv::Mat input_float_bgr_cpu; // FAISS operates on float data, prepare it on CPU.
+        input_img_bgr.convertTo(input_float_bgr_cpu, CV_32FC3); // input_img_bgr is already a CPU cv::Mat.
 
-            long n_pixels = input_float_bgr.rows * input_float_bgr.cols;
-            int dim = 3; // BGR or RGB dimensions
+        long n_pixels = input_float_bgr_cpu.rows * input_float_bgr_cpu.cols;
+        int dim = 3; // BGR or RGB dimensions
 
-            if (n_pixels == 0) {
-                std::cerr << "Error: No samples to process for FAISS k-means." << std::endl;
-                return {cv::Mat(), {}};
-            }
-            if (n_pixels < k) { // Cannot have more clusters than samples
-                k = n_pixels;
-                if (k == 0) return {cv::Mat(), {}}; // Should be caught by n_pixels == 0
-            }
-            num_colors_target = k; // Update output parameter with potentially adjusted k
+        if (n_pixels == 0) {
+            std::cerr << "Error: No samples to process for FAISS k-means (data prepared on CPU)." << std::endl;
+            // To ensure fallback, throw an exception or return an empty pair that the caller handles.
+            // For simplicity, we'll let it fall through to the CPU path by not returning here,
+            // but a more robust way would be to throw, e.g., faiss::FaissException.
+            // However, the original code structure implies that if this path fails, it falls to CPU KMeans.
+            // Let's make it throw to be cleaner for fallback.
+            throw faiss::FaissException("No samples to process for FAISS k-means");
+        }
+        if (n_pixels < k) { // Cannot have more clusters than samples
+            k = n_pixels;
+            if (k == 0) throw faiss::FaissException("k became 0 after n_pixels check");
+        }
+        num_colors_target = k; // Update output parameter with potentially adjusted k
 
-            // Upload image data to GPU for FAISS processing
-            cv::cuda::GpuMat gpu_input_img_8u, gpu_input_img_32f;
-            gpu_input_img_8u.upload(input_img_bgr); // Upload original 8-bit BGR
-            gpu_input_img_8u.convertTo(gpu_input_img_32f, CV_32F); // Convert to 32-bit float on GPU
+        // FAISS expects a flat array of samples (N samples, D dimensions).
+        // Reshape the CPU cv::Mat. Ensure it's continuous for ptr<float>().
+        if (!input_float_bgr_cpu.isContinuous()) {
+            input_float_bgr_cpu = input_float_bgr_cpu.clone(); // Make it continuous
+        }
+        cv::Mat samples_bgr_cpu_for_faiss = input_float_bgr_cpu.reshape(1, n_pixels);
+        const float* h_samples_cpu_ptr = samples_bgr_cpu_for_faiss.ptr<float>(); // Pointer to CPU data
 
-            if (!gpu_input_img_32f.isContinuous()) {
-                 // This should ideally not happen after upload and convertTo
-                std::cerr << "Error: GPU Mat for FAISS is not continuous. Cloning to make it continuous." << std::endl;
-                gpu_input_img_32f = gpu_input_img_32f.clone(); // Force continuous memory
-            }
-            // Reshape to N x dim for FAISS (N samples, 3 dimensions)
-            cv::cuda::GpuMat gpu_samples_bgr = gpu_input_img_32f.reshape(1, n_pixels);
-            const float* d_samples = gpu_samples_bgr.ptr<float>(); // Pointer to GPU data
+        faiss::ClusteringParameters cp;
+        cp.niter = 50;    // Number of k-means iterations
+        cp.nredo = 5;     // Number of times to redo k-means with different random seeds
+        cp.verbose = false; // Suppress FAISS console output (can be true for debugging)
+        cp.spherical = false; // Standard Euclidean k-means
+        cp.update_index = true;
+        cp.min_points_per_centroid = std::max(1, static_cast<int>(n_pixels / (k * 20.0f)));
+        cp.max_points_per_centroid = static_cast<int>((n_pixels / static_cast<float>(k)) * 10.0f);
+        // cp.seed = 1234; // For reproducible k-means, if desired
 
-            faiss::ClusteringParameters cp;
-            cp.niter = 50;  // Number of k-means iterations
-            cp.nredo = 5;   // Number of times to redo k-means with different random seeds
-            cp.verbose = false; // Suppress FAISS console output
-            cp.spherical = false; // Standard Euclidean k-means
-            cp.update_index = true;
-            // Heuristics for min/max points per centroid, can be adjusted
-            cp.min_points_per_centroid = std::max(1, static_cast<int>(n_pixels / (k * 20.0f)));
-            cp.max_points_per_centroid = static_cast<int>((n_pixels / static_cast<float>(k)) * 10.0f);
-            // cp.seed = 1234; // For reproducible k-means, if desired
+        faiss::Clustering clustering(dim, k, cp);
+        // Train k-means model using CPU data. FAISS GPU will handle data transfer internally.
+        clustering.train(n_pixels, h_samples_cpu_ptr, res);
 
-            faiss::Clustering clustering(dim, k, cp);
-            clustering.train(n_pixels, d_samples, res); // Train k-means model
+        if (clustering.centroids.empty()) {
+            std::cerr << "Error: FAISS k-means (GPU path) returned 0 centroids." << std::endl;
+            throw faiss::FaissException("FAISS k-means (GPU path) returned 0 centroids.");
+        }
+        
+        num_colors_target = clustering.centroids.size() / dim; // Actual number of clusters found
+        if (num_colors_target == 0) {
+            std::cerr << "Error: FAISS k-means (GPU path) resulted in 0 valid centroids after division by dim." << std::endl;
+            throw faiss::FaissException("FAISS k-means (GPU path) 0 valid centroids after dim division.");
+        }
 
-            if (clustering.centroids.empty()) {
-                std::cerr << "Error: FAISS k-means returned 0 centroids." << std::endl;
-                // Fallback: could use average color or OpenCV path, here returning error
-                return {cv::Mat(), {}};
-            }
-            
-            num_colors_target = clustering.centroids.size() / dim; // Actual number of clusters found
-            if (num_colors_target == 0) {
-                 std::cerr << "Error: FAISS k-means resulted in 0 valid centroids after division by dim." << std::endl;
-                 return {cv::Mat(), {}};
-            }
+        std::vector<float> h_centroids_bgr = clustering.centroids; // Download centroids (BGR order as per input)
 
-            std::vector<float> h_centroids_bgr = clustering.centroids; // Download centroids (BGR order)
+        // Assign labels to original samples using the found centroids
+        faiss::gpu::GpuIndexFlatL2 centroid_index(&res, dim); // GPU index for searching
+        centroid_index.add(num_colors_target, h_centroids_bgr.data()); // Add centroids (from CPU) to GPU index
 
-            // Assign labels to original samples using the found centroids
-            faiss::gpu::GpuIndexFlatL2 centroid_index(&res, dim); // GPU index for searching
-            centroid_index.add(num_colors_target, h_centroids_bgr.data()); // Add centroids to index
+        std::vector<faiss::idx_t> h_labels(n_pixels); // Labels for each pixel (on CPU)
+        std::vector<float> h_distances(n_pixels);     // Distances to closest centroid (on CPU, optional)
+        // Search using CPU data. FAISS GPU will handle data transfer for search.
+        centroid_index.search(n_pixels, h_samples_cpu_ptr, 1, h_distances.data(), h_labels.data());
 
-            std::vector<faiss::idx_t> h_labels(n_pixels); // Labels for each pixel
-            std::vector<float> h_distances(n_pixels);    // Distances to closest centroid (optional)
-            centroid_index.search(n_pixels, d_samples, 1, h_distances.data(), h_labels.data()); // Assign labels
+        // Prepare palette (RGB) and quantized image (BGR)
+        std::vector<Color> palette_vector_rgb; // Palette stores colors as RGB
+        palette_vector_rgb.reserve(num_colors_target);
+        for (int i = 0; i < num_colors_target; ++i) {
+            palette_vector_rgb.push_back({
+                // Centroids from FAISS are BGR (same as input), convert to RGB for palette struct
+                static_cast<unsigned char>(std::max(0.0f, std::min(255.0f, h_centroids_bgr[i * dim + 2]))), // R
+                static_cast<unsigned char>(std::max(0.0f, std::min(255.0f, h_centroids_bgr[i * dim + 1]))), // G
+                static_cast<unsigned char>(std::max(0.0f, std::min(255.0f, h_centroids_bgr[i * dim + 0])))  // B
+            });
+        }
 
-            // Prepare palette (RGB) and quantized image (BGR)
-            std::vector<Color> palette_vector_rgb; // Palette stores colors as RGB
-            palette_vector_rgb.reserve(num_colors_target);
-            for (int i = 0; i < num_colors_target; ++i) {
-                palette_vector_rgb.push_back({
-                    // Centroids from FAISS are BGR (same as input), convert to RGB for palette struct
-                    static_cast<unsigned char>(std::max(0.0f, std::min(255.0f, h_centroids_bgr[i * dim + 2]))), // R
-                    static_cast<unsigned char>(std::max(0.0f, std::min(255.0f, h_centroids_bgr[i * dim + 1]))), // G
-                    static_cast<unsigned char>(std::max(0.0f, std::min(255.0f, h_centroids_bgr[i * dim + 0])))  // B
-                });
-            }
-
-            cv::Mat quantized_image_bgr_cpu(input_img_bgr.size(), input_img_bgr.type()); // Output is BGR
-            for (long r = 0; r < input_img_bgr.rows; ++r) {
-                for (long c = 0; c < input_img_bgr.cols; ++c) {
-                    long sample_idx = r * input_img_bgr.cols + c;
-                    faiss::idx_t cluster_idx = h_labels[sample_idx];
-                    if (cluster_idx >= 0 && cluster_idx < num_colors_target) {
-                        cv::Vec3b& pixel = quantized_image_bgr_cpu.at<cv::Vec3b>(r, c); // OpenCV pixel is BGR
-                        // Palette is RGB, centroids h_centroids_bgr are BGR.
-                        // Assign BGR values from h_centroids_bgr directly.
-                        pixel[0] = static_cast<unsigned char>(std::max(0.0f, std::min(255.0f, h_centroids_bgr[cluster_idx * dim + 0]))); // B
-                        pixel[1] = static_cast<unsigned char>(std::max(0.0f, std::min(255.0f, h_centroids_bgr[cluster_idx * dim + 1]))); // G
-                        pixel[2] = static_cast<unsigned char>(std::max(0.0f, std::min(255.0f, h_centroids_bgr[cluster_idx * dim + 2]))); // R
+        cv::Mat quantized_image_bgr_cpu(input_img_bgr.size(), input_img_bgr.type()); // Output is BGR, on CPU
+        for (long r_idx = 0; r_idx < input_img_bgr.rows; ++r_idx) {
+            for (long c_idx = 0; c_idx < input_img_bgr.cols; ++c_idx) {
+                long sample_idx = r_idx * input_img_bgr.cols + c_idx;
+                faiss::idx_t cluster_idx = h_labels[sample_idx];
+                if (cluster_idx >= 0 && cluster_idx < num_colors_target) {
+                    cv::Vec3b& pixel = quantized_image_bgr_cpu.at<cv::Vec3b>(r_idx, c_idx); // OpenCV pixel is BGR
+                    // Assign BGR values from h_centroids_bgr directly.
+                    pixel[0] = static_cast<unsigned char>(std::max(0.0f, std::min(255.0f, h_centroids_bgr[cluster_idx * dim + 0]))); // B
+                    pixel[1] = static_cast<unsigned char>(std::max(0.0f, std::min(255.0f, h_centroids_bgr[cluster_idx * dim + 1]))); // G
+                    pixel[2] = static_cast<unsigned char>(std::max(0.0f, std::min(255.0f, h_centroids_bgr[cluster_idx * dim + 2]))); // R
+                } else {
+                     // Handle case where label might be out of bounds, e.g., assign a default color or average
+                    if (!palette_vector_rgb.empty() && h_centroids_bgr.size() >= dim) { // Use first centroid if available
+                         cv::Vec3b& pixel = quantized_image_bgr_cpu.at<cv::Vec3b>(r_idx, c_idx);
+                         pixel[0] = static_cast<unsigned char>(std::max(0.0f, std::min(255.0f, h_centroids_bgr[0]))); // B
+                         pixel[1] = static_cast<unsigned char>(std::max(0.0f, std::min(255.0f, h_centroids_bgr[1]))); // G
+                         pixel[2] = static_cast<unsigned char>(std::max(0.0f, std::min(255.0f, h_centroids_bgr[2]))); // R
+                    } else { // Black if no centroids
+                         quantized_image_bgr_cpu.at<cv::Vec3b>(r_idx, c_idx) = cv::Vec3b(0,0,0);
+                    }
+                    if (cluster_idx < 0) { // Should not happen with faiss search k=1
+                        std::cerr << "Warning: FAISS returned invalid cluster_idx " << cluster_idx << " for pixel (" << r_idx << "," << c_idx << ")" << std::endl;
                     }
                 }
             }
-            std::cout << "FAISS GPU K-Means successful." << std::endl;
-            return {quantized_image_bgr_cpu, palette_vector_rgb};
-
-        } catch (const faiss::FaissException& ex) {
-            std::cerr << "FAISS Exception in GPU quantization: " << ex.what() << std::endl;
-            // Fallback to CPU path below
-        } catch (const cv::Exception& ex) { // Catch OpenCV specific exceptions (e.g., CUDA errors)
-            std::cerr << "OpenCV CUDA/core Exception in FAISS GPU path: " << ex.what() << std::endl;
-            // Fallback to CPU path below
         }
+        std::cout << "FAISS GPU K-Means (using CPU data source) successful." << std::endl;
+        return {quantized_image_bgr_cpu, palette_vector_rgb};
+
+    } catch (const faiss::FaissException& ex) {
+        std::cerr << "FAISS Exception in GPU quantization path: " << ex.what() << std::endl;
+        std::cerr << "Falling back to CPU (OpenCV) K-Means." << std::endl;
+        // Fallback to CPU path below
+    } catch (const cv::Exception& ex) { // Catch OpenCV specific exceptions (e.g., from convertTo, reshape if something unexpected)
+        std::cerr << "OpenCV Core Exception in FAISS GPU data prep path: " << ex.what() << std::endl;
+        std::cerr << "Falling back to CPU (OpenCV) K-Means." << std::endl;
+        // Fallback to CPU path below
+    } catch (const std::exception& ex) { // Catch any other standard exceptions
+        std::cerr << "Standard Exception in FAISS GPU path: " << ex.what() << std::endl;
+        std::cerr << "Falling back to CPU (OpenCV) K-Means." << std::endl;
     }
 #endif // WITH_FAISS_GPU
 
-    // Fallback to Original CPU Path (OpenCV k-means) or if no GPU/FAISS_GPU
+    // Fallback to Original CPU Path (OpenCV k-means) or if FAISS_GPU path failed or was not compiled.
     std::cout << "Using CPU (OpenCV) K-Means path for color quantization." << std::endl;
     cv::Mat samples_bgr_cpu_fallback(input_img_bgr.total(), 3, CV_32F);
     cv::Mat input_float_bgr_cpu_fallback;
@@ -240,12 +259,21 @@ std::pair<cv::Mat, std::vector<Color>> perform_color_quantization_cpp(
     if (labels_cpu_fallback.empty() || labels_cpu_fallback.rows != samples_bgr_cpu_fallback.rows ) {
         std::cerr << "Error: OpenCV kmeans failed to produce valid labels. Resulting image might be incorrect." << std::endl;
         // Potentially fill with average color or first palette color as a simple recovery
+        if (!palette_vector_rgb_fallback.empty()) {
+             quantized_image_bgr_cpu_fallback.setTo(cv::Vec3b(
+                 palette_vector_rgb_fallback[0].b, // Palette is RGB, so use .b, .g, .r
+                 palette_vector_rgb_fallback[0].g,
+                 palette_vector_rgb_fallback[0].r
+             ));
+        } else { // Default to black if no palette
+            quantized_image_bgr_cpu_fallback.setTo(cv::Vec3b(0,0,0));
+        }
     } else {
         int* plabels = labels_cpu_fallback.ptr<int>(0);
         for (int r_idx = 0; r_idx < quantized_image_bgr_cpu_fallback.rows; ++r_idx) {
             for (int c_idx = 0; c_idx < quantized_image_bgr_cpu_fallback.cols; ++c_idx) {
                 int sample_idx = r_idx * quantized_image_bgr_cpu_fallback.cols + c_idx;
-                if (sample_idx < labels_cpu_fallback.rows && plabels) {
+                if (sample_idx < labels_cpu_fallback.rows && plabels) { // Check sample_idx bounds
                     int cluster_idx = plabels[sample_idx];
                     if (cluster_idx >=0 && cluster_idx < centers_bgr_cpu_fallback.rows) {
                         cv::Vec3b& pixel = quantized_image_bgr_cpu_fallback.at<cv::Vec3b>(r_idx, c_idx); // BGR
@@ -253,7 +281,22 @@ std::pair<cv::Mat, std::vector<Color>> perform_color_quantization_cpp(
                         pixel[0] = static_cast<unsigned char>(std::max(0.0f, std::min(255.0f, centers_bgr_cpu_fallback.at<float>(cluster_idx, 0)))); // B
                         pixel[1] = static_cast<unsigned char>(std::max(0.0f, std::min(255.0f, centers_bgr_cpu_fallback.at<float>(cluster_idx, 1)))); // G
                         pixel[2] = static_cast<unsigned char>(std::max(0.0f, std::min(255.0f, centers_bgr_cpu_fallback.at<float>(cluster_idx, 2)))); // R
+                    } else {
+                        // Should not happen if kmeans worked correctly and labels are valid indices for centers
+                         std::cerr << "Warning: OpenCV Kmeans returned invalid cluster_idx " << cluster_idx << " for pixel (" << r_idx << "," << c_idx << ")" << std::endl;
+                         if (!palette_vector_rgb_fallback.empty()) { // Use first palette color
+                             cv::Vec3b& pixel = quantized_image_bgr_cpu_fallback.at<cv::Vec3b>(r_idx, c_idx);
+                             pixel[0] = palette_vector_rgb_fallback[0].b;
+                             pixel[1] = palette_vector_rgb_fallback[0].g;
+                             pixel[2] = palette_vector_rgb_fallback[0].r;
+                         } else {
+                             quantized_image_bgr_cpu_fallback.at<cv::Vec3b>(r_idx, c_idx) = cv::Vec3b(0,0,0); // Black
+                         }
                     }
+                } else {
+                    // This case (sample_idx out of bounds for labels_cpu_fallback) should ideally not happen if reshape and total are correct
+                    std::cerr << "Warning: sample_idx out of bounds for labels_cpu_fallback. Pixel (" << r_idx << "," << c_idx << ")" << std::endl;
+                    quantized_image_bgr_cpu_fallback.at<cv::Vec3b>(r_idx, c_idx) = cv::Vec3b(0,0,0); // Black
                 }
             }
         }
@@ -268,10 +311,10 @@ std::string bitmapToSvg_with_internal_quantization(
     int height,
     int num_colors_hint,
     double simplification_epsilon_factor, // = 0.009,
-    double min_contour_area,             // = 10.0,
-    int max_features_to_render,         // = 0 (no limit),
-    int original_svg_width,             // = -1 (use image width),
-    int original_svg_height             // = -1 (use image height)
+    double min_contour_area,              // = 10.0,
+    int max_features_to_render,           // = 0 (no limit),
+    int original_svg_width,               // = -1 (use image width),
+    int original_svg_height               // = -1 (use image height)
 ) {
     // Wrap raw RGB data into an OpenCV Mat
     cv::Mat raw_img_rgb_data_wrapper(height, width, CV_8UC3, const_cast<unsigned char*>(raw_bitmap_data_rgb_ptr));
@@ -288,7 +331,7 @@ std::string bitmapToSvg_with_internal_quantization(
     // perform_color_quantization_cpp expects BGR input and returns BGR image + RGB palette
     auto quantization_result = perform_color_quantization_cpp(raw_img_bgr, actual_num_colors);
 
-    cv::Mat quantized_img_bgr = quantization_result.first;    // This is on CPU, in BGR order
+    cv::Mat quantized_img_bgr = quantization_result.first;   // This is on CPU, in BGR order
     std::vector<Color> palette_rgb = quantization_result.second; // This palette is RGB
 
     if (quantized_img_bgr.empty() || palette_rgb.empty()) {
