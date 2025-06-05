@@ -183,11 +183,42 @@ if(WITH_FAISS_LIBRARY_FOUND AND FAISS_LIBRARIES_TO_LINK)
     message(STATUS "Linking target with FAISS library/target: ${FAISS_LIBRARIES_TO_LINK}")
 endif()
 
+# if(WITH_CUDA_ENABLED) # If general CUDA is active and configured
+#     # Linking to CUDA::cudart should bring in necessary CUDA runtime libraries
+#     # and also often helps with include paths for CUDA headers.
+#     target_link_libraries(bitmap2svg_core PRIVATE CUDA::cudart)
+#     message(STATUS "Linking target with CUDA::cudart.")
+# endif()
+
+# --- Link Libraries to the Module ---
+target_link_libraries(bitmap2svg_core PRIVATE
+    pybind11::module
+    ${OpenCV_LIBS}
+)
+
+if(WITH_FAISS_LIBRARY_FOUND AND FAISS_LIBRARIES_TO_LINK)
+    target_link_libraries(bitmap2svg_core PRIVATE ${FAISS_LIBRARIES_TO_LINK})
+    message(STATUS "Linking target with FAISS library/target: ${FAISS_LIBRARIES_TO_LINK}")
+endif()
+
 if(WITH_CUDA_ENABLED) # If general CUDA is active and configured
-    # Linking to CUDA::cudart should bring in necessary CUDA runtime libraries
-    # and also often helps with include paths for CUDA headers.
-    target_link_libraries(bitmap2svg_core PRIVATE CUDA::cudart)
-    message(STATUS "Linking target with CUDA::cudart.")
+    # Try linking to the modern CMake target first
+    find_package(CUDAToolkit QUIET COMPONENTS Runtime) # CUDAToolkit module is newer and might create these targets more reliably
+    if(CUDAToolkit_FOUND AND TARGET CUDA::cudart)
+        target_link_libraries(bitmap2svg_core PRIVATE CUDA::cudart)
+        message(STATUS "Linking target with CUDA::cudart (modern CMake target).")
+    else()
+        # Fallback: Find cudart library directly and link
+        find_library(CUDART_LIBRARY cudart PATHS ${CUDA_TOOLKIT_ROOT_DIR}/lib64 ${CUDA_TOOLKIT_ROOT_DIR}/targets/x86_64-linux/lib NO_DEFAULT_PATH)
+        if(CUDART_LIBRARY)
+            target_link_libraries(bitmap2svg_core PRIVATE ${CUDART_LIBRARY})
+            message(STATUS "Linking target with cudart library found at: ${CUDART_LIBRARY} (fallback).")
+        else()
+            message(WARNING "CUDA is enabled, but CUDA::cudart target was not found, and direct cudart library could not be found. CUDA features might fail.")
+            # If C++ code depends heavily on CUDA runtime, you might want to set WITH_CUDA_ENABLED to FALSE here,
+            # or ensure this error stops the build if it's critical.
+        endif()
+    endif()
 endif()
 
 # --- Installation ---
