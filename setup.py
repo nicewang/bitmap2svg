@@ -1,62 +1,14 @@
-import faiss
-import os
-import sys
 from setuptools import setup
 
-def get_faiss_cmake_args():
-    """
-    Dynamically finds Faiss installation paths and returns them as a list of CMake arguments.
-    This function will be called by setup.py during the build process.
-    """
-    faiss_include_dir = ""
-    faiss_library_path = ""
-    is_gpu_enabled = "OFF"
-    cmake_args = []
-
-    print("DEBUG (setup.py): Executing get_faiss_cmake_args()", file=sys.stderr)
-
-    try:
-        faiss_include_dir = os.path.join(os.path.dirname(faiss.__file__), 'include')
-        print(f"DEBUG (setup.py): Faiss discovered include dir: {faiss_include_dir}", file=sys.stderr)
-
-        found_lib = False
-        for root, dirs, files in os.walk(os.path.dirname(faiss.__file__)):
-            for file in files:
-                if file.startswith("libfaiss_gpu") and (file.endswith(".so") or file.endswith(".dylib") or file.endswith(".dll")):
-                    faiss_library_path = os.path.join(root, file)
-                    is_gpu_enabled = "ON"
-                    found_lib = True
-                    break
-                elif not found_lib and file.startswith("libfaiss") and (file.endswith(".so") or file.endswith(".dylib") or file.endswith(".dll")):
-                    faiss_library_path = os.path.join(root, file)
-            if found_lib:
-                break
-
-        if "gpu" in faiss.__file__.lower() or (faiss_library_path and "gpu" in faiss_library_path.lower()):
-            is_gpu_enabled = "ON"
-        else:
-            is_gpu_enabled = "OFF"
-
-        print(f"DEBUG (setup.py): Faiss discovered library path: {faiss_library_path}", file=sys.stderr)
-        print(f"DEBUG (setup.py): Faiss GPU enabled (detected): {is_gpu_enabled}", file=sys.stderr)
-
-    except ImportError:
-        print("WARNING (setup.py): Faiss module not found in the build environment. Faiss-dependent features will be disabled.", file=sys.stderr)
-    except Exception as e:
-        print(f"WARNING (setup.py): Error getting Faiss paths: {e}", file=sys.stderr)
-
-    if faiss_include_dir:
-        cmake_args.append(f"-DPYTHON_FAISS_INCLUDE_DIR={faiss_include_dir}")
-    if faiss_library_path:
-        cmake_args.append(f"-DPYTHON_FAISS_LIBRARY_PATH={faiss_library_path}")
-    cmake_args.append(f"-DPYTHON_FAISS_IS_GPU_ENABLED={is_gpu_enabled}")
-
-    print(f"DEBUG (setup.py): Generated CMake args: {cmake_args}", file=sys.stderr)
-    return cmake_args
-
-dynamic_cmake_args = get_faiss_cmake_args()
-
 setup(
-    cmake_args=dynamic_cmake_args,
-    cmake_source_dir=".",
+    name="bitmap2svg",
+    version="0.2.3.2",
+    description="A library to convert bitmaps to SVG, using C++ and OpenCV.",
+    long_description=open("README.md").read(),
+    long_description_content_type="text/markdown",
+    author="Xiaonan (Nice) Wang",
+    author_email="wangxiaonannice@gmail.com",
+    license="MIT",  
+    url="https://github.com/Opensource-Nice-Arishi/kaggle_drawing_with_LLMs/tree/bitmap2svg-cu-v0.2.3.2",
+    packages=["bitmap2svg"],
 )
