@@ -19,7 +19,7 @@
 #include <faiss/gpu/GpuIndexFlat.h> // For GpuIndexFlatL2
 #include <faiss/gpu/StandardGpuResources.h>
 #include <faiss/Clustering.h>    // For faiss::ClusteringParameters and faiss::Clustering
-#include <faiss/FaissException.h> // For faiss::FaissException
+// #include <faiss/FaissException.h> // For faiss::FaissException
 #endif
 
 // Define the SVG size constraint
@@ -81,11 +81,6 @@ std::pair<cv::Mat, std::vector<Color>> perform_color_quantization_cpp(
 
         if (n_pixels == 0) {
             std::cerr << "Error: No samples to process for FAISS k-means (data prepared on CPU)." << std::endl;
-            // To ensure fallback, throw an exception or return an empty pair that the caller handles.
-            // For simplicity, we'll let it fall through to the CPU path by not returning here,
-            // but a more robust way would be to throw, e.g., faiss::FaissException.
-            // However, the original code structure implies that if this path fails, it falls to CPU KMeans.
-            // Let's make it throw to be cleaner for fallback.
             throw faiss::FaissException("No samples to process for FAISS k-means");
         }
         if (n_pixels < k) { // Cannot have more clusters than samples
