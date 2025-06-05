@@ -104,10 +104,10 @@ elseif(DEVSYS_USE_FAISS_GPU) # Fallback to system Faiss search
     if(WITH_CUDA_ENABLED)
         find_package(Faiss QUIET)
         if(FAISS_FOUND)
-            # set(FAISS_INCLUDE_DIRS_TO_USE ${Faiss_INCLUDE_DIRS})
-            # set(FAISS_LIBRARIES_TO_LINK ${FAISS_SYSTEM_LINK_TARGET})
-            # set(WITH_FAISS_LIBRARY_FOUND TRUE)
-            # set(WITH_FAISS_GPU_ENABLED TRUE) # If system Faiss GPU target is found
+            set(FAISS_INCLUDE_DIRS_TO_USE ${Faiss_INCLUDE_DIRS})
+            set(FAISS_LIBRARIES_TO_LINK ${FAISS_SYSTEM_LINK_TARGET})
+            set(WITH_FAISS_LIBRARY_FOUND TRUE)
+            set(WITH_FAISS_GPU_ENABLED TRUE) # If system Faiss GPU target is found
             message(STATUS "System Faiss found and configured for GPU (ensure your logic here is complete).")
         else()
             message(WARNING "DEVSYS_USE_FAISS_GPU is ON but system FAISS library not found for GPU.")
