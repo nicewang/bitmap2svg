@@ -19,7 +19,7 @@
 #include "faiss/gpu/GpuIndexFlat.h" // For GpuIndexFlatL2
 #include "faiss/gpu/StandardGpuResources.h"
 #include "faiss/Clustering.h"    // For faiss::ClusteringParameters and faiss::Clustering
-#include "faiss/Index.h"         // To get faiss::Index and faiss::idx_t (using 'Index.h' as per your last attempt)
+#include "faiss/Index.h"         // To get faiss::Index and faiss::Index::idx_t (using 'Index.h' as per your last attempt)
 #endif
 
 // --- TEMPORARY DEBUGGING CODE ---
@@ -136,7 +136,7 @@ std::pair<cv::Mat, std::vector<Color>> perform_color_quantization_cpp(
         faiss::gpu::GpuIndexFlatL2 search_centroid_index(&res, dim); 
         search_centroid_index.add(num_colors_target, h_centroids_bgr.data()); 
 
-        std::vector<faiss::idx_t> h_labels(n_pixels);
+        std::vector<faiss::Index::idx_t> h_labels(n_pixels);
         std::vector<float> h_distances(n_pixels);
         search_centroid_index.search(n_pixels, h_samples_cpu_ptr, 1, h_distances.data(), h_labels.data());
 
@@ -154,7 +154,7 @@ std::pair<cv::Mat, std::vector<Color>> perform_color_quantization_cpp(
         for (long r_idx = 0; r_idx < input_img_bgr.rows; ++r_idx) {
             for (long c_idx = 0; c_idx < input_img_bgr.cols; ++c_idx) {
                 long sample_idx = r_idx * input_img_bgr.cols + c_idx;
-                faiss::idx_t cluster_idx = h_labels[sample_idx];
+                faiss::Index::idx_t cluster_idx = h_labels[sample_idx];
                 if (cluster_idx >= 0 && cluster_idx < num_colors_target) {
                     cv::Vec3b& pixel = quantized_image_bgr_cpu.at<cv::Vec3b>(r_idx, c_idx);
                     pixel[0] = static_cast<unsigned char>(std::max(0.0f, std::min(255.0f, h_centroids_bgr[cluster_idx * dim + 0]))); // B
