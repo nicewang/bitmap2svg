@@ -1,65 +1,70 @@
 cmake_minimum_required(VERSION 3.18) # Faiss might require 3.18+
-project(bitmap2svg_cpp LANGUAGES CXX) # Removed CUDA language here, will add conditionally if true CUDA toolkit is found
+project(bitmap2svg_cpp LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
-# For CUDA, ensure its standard matches or is compatible
-set(CMAKE_CUDA_STANDARD ${CMAKE_CXX_STANDARD})
+set(CMAKE_CUDA_STANDARD ${CMAKE_CXX_STANDARD}) # If CUDA is enabled later
 set(CMAKE_CUDA_STANDARD_REQUIRED ON)
 
-# Set CUDA Architectures for Kaggle (T4: 75, P100: 60)
-# Check scikit-build-core docs for how it handles this; often set via env var or cmake args.
-# If not set externally, provide a default.
+# --- Find Python for the main build (pybind11, etc.) ---
+# This needs to happen early, especially for pybind11.
+# Requesting "Development" component makes Python3_add_library available.
+# Use a version consistent with your project's Python requirements (e.g., "3.8").
+find_package(Python3 3.8 COMPONENTS Interpreter Development REQUIRED)
+message(STATUS "Found Python3 for main build (used by pybind11 etc.):")
+message(STATUS "  Interpreter: ${Python3_EXECUTABLE}")
+message(STATUS "  Includes:    ${Python3_INCLUDE_DIRS}")
+message(STATUS "  Libraries:   ${Python3_LIBRARIES}")
+message(STATUS "  Development.Module (for Python3_add_library): ${Python3_Development.Module_FOUND}")
+
+
+# Set CUDA Architectures (remains the same)
 if(NOT CMAKE_CUDA_ARCHITECTURES)
     message(STATUS "CMAKE_CUDA_ARCHITECTURES not set, defaulting to '60;75' for common Kaggle GPUs.")
     set(CMAKE_CUDA_ARCHITECTURES "60;75")
 endif()
 
-# --- Options for local development / system search fallback ---
-# For Kaggle, we'll generally disable system CUDA/Faiss GPU search by default
-option(DEVSYS_USE_CUDA "Enable CUDA if found on system (for OpenCV, and Faiss if system Faiss is used)" OFF) # Default OFF for build environment
-option(DEVSYS_USE_FAISS_GPU "Enable FAISS GPU if system Faiss is found and supports GPU (requires DEVSYS_USE_CUDA)" OFF) # Default OFF for build environment
+# --- Options for local development / system search fallback --- (remains same)
+option(DEVSYS_USE_CUDA "Enable CUDA if found on system (for OpenCV, and Faiss if system Faiss is used)" OFF)
+option(DEVSYS_USE_FAISS_GPU "Enable FAISS GPU if system Faiss is found and supports GPU (requires DEVSYS_USE_CUDA)" OFF)
 
-# --- Variables from Python build environment (now potentially set by probe script) ---
-# These initial CACHE definitions act as defaults or placeholders
+# --- Variables potentially set by Python probe script ---
 set(PYTHON_FAISS_INCLUDE_DIR "" CACHE PATH "Path to Faiss include directory from Python package (auto-detected or manual)")
 set(PYTHON_FAISS_LIBRARY_PATH "" CACHE FILEPATH "Path to Faiss library file from Python package (auto-detected or manual)")
 set(PYTHON_FAISS_IS_GPU_ENABLED OFF CACHE BOOL "Whether the Python Faiss package is GPU enabled (auto-detected or manual)")
 option(MYPROJECT_PREFER_PYTHON_FAISS "Prefer Faiss from Python environment if paths are provided" ON)
 
 # --- Attempt to auto-detect Faiss paths using a Python script ---
-# This section will try to overwrite the above CACHE variables if the script succeeds.
-if(MYPROJECT_PREFER_PYTHON_FAISS) # Only run probe if we prefer Python Faiss
+if(MYPROJECT_PREFER_PYTHON_FAISS)
     set(FAISS_PROBE_SCRIPT "${CMAKE_CURRENT_SOURCE_DIR}/cmake/find_faiss_paths.py")
     if(EXISTS "${FAISS_PROBE_SCRIPT}")
-        find_package(Python3 COMPONENTS Interpreter REQUIRED)
+        # Use the Python3_EXECUTABLE found by the find_package(Python3 ...) call above.
+        # This is CRUCIAL: this Python should be the one from the build environment.
         if(Python3_EXECUTABLE)
             message(STATUS "Attempting to auto-detect Faiss paths using Python script: ${FAISS_PROBE_SCRIPT}")
+            message(STATUS "  using Python interpreter for probe: ${Python3_EXECUTABLE}") # Important for debugging
             execute_process(
                 COMMAND "${Python3_EXECUTABLE}" "${FAISS_PROBE_SCRIPT}"
                 RESULT_VARIABLE _faiss_probe_result
-                OUTPUT_VARIABLE _faiss_probe_output # KEY=VALUE;KEY=VALUE
+                OUTPUT_VARIABLE _faiss_probe_output
                 ERROR_VARIABLE _faiss_probe_error
                 OUTPUT_STRIP_TRAILING_WHITESPACE
             )
-
+            # ... (rest of your parsing logic for _faiss_probe_output remains the same)
+            # Ensure this parsing logic is robust, as shown in the previous good example.
             if(_faiss_probe_result EQUAL 0 AND _faiss_probe_output)
                 message(STATUS "Faiss probe script successful. Output: ${_faiss_probe_output}")
-                # Split the output string by semicolon into a list of KEY=VALUE pairs
                 string(REPLACE ";" _list_separator "${_faiss_probe_output}" _key_value_list)
-
                 foreach(_key_value_pair ${_key_value_list})
                     if(_key_value_pair MATCHES "([^=]+)=(.+)")
                         set(_key "${CMAKE_MATCH_1}")
                         set(_value "${CMAKE_MATCH_2}")
                         message(STATUS "  Probe found: ${_key} = ${_value}")
-                        # Determine CACHE type based on key name (optional, could just use STRING)
                         if(_key STREQUAL "PYTHON_FAISS_INCLUDE_DIR")
                             set(${_key} "${_value}" CACHE PATH "Path from Faiss probe script" FORCE)
                         elseif(_key STREQUAL "PYTHON_FAISS_LIBRARY_PATH")
                             set(${_key} "${_value}" CACHE FILEPATH "Path from Faiss probe script" FORCE)
                         elseif(_key STREQUAL "PYTHON_FAISS_IS_GPU_ENABLED")
-                            # CMake set(CACHE BOOL ...) expects ON/OFF or TRUE/FALSE
                             if("${_value}" STREQUAL "ON" OR "${_value}" STREQUAL "OFF" OR
                                "${_value}" STREQUAL "TRUE" OR "${_value}" STREQUAL "FALSE" OR
                                "${_value}" STREQUAL "1" OR "${_value}" STREQUAL "0")
@@ -69,15 +74,14 @@ if(MYPROJECT_PREFER_PYTHON_FAISS) # Only run probe if we prefer Python Faiss
                                 set(${_key} OFF CACHE BOOL "Status from Faiss probe script (fallback)" FORCE)
                             endif()
                         else()
-                            # For any other unexpected keys, just set as string
                             set(${_key} "${_value}" CACHE STRING "Value from Faiss probe script" FORCE)
                         endif()
                     else()
                         message(WARNING "  Faiss probe script returned malformed pair: ${_key_value_pair}")
                     endif()
                 endforeach()
-                if(_faiss_probe_error) # Print stderr from script if any
-                    message(WARNING "Faiss probe script stderr:\n${_faiss_probe_error}")
+                if(_faiss_probe_error)
+                    message(WARNING "Faiss probe script stderr (if any):\n${_faiss_probe_error}")
                 endif()
             else()
                 message(WARNING "Faiss probe script execution failed or produced no output.")
@@ -85,15 +89,15 @@ if(MYPROJECT_PREFER_PYTHON_FAISS) # Only run probe if we prefer Python Faiss
                     message(WARNING "  Result: ${_faiss_probe_result}")
                 endif()
                 if(NOT _faiss_probe_output)
-                     message(WARNING "  Output: <empty>")
+                     message(WARNING "  Output was: <empty>")
                 endif()
-                if(_faiss_probe_error)
-                    message(WARNING "  Error output:\n${_faiss_probe_error}")
+                if(_faiss_probe_error) # This is where "ERROR: Python module 'faiss' not found." will appear
+                    message(WARNING "  Error output from probe script:\n${_faiss_probe_error}")
                 endif()
                 message(WARNING "Proceeding with default/manual Faiss path settings if any.")
             endif()
         else()
-            message(WARNING "Python3 interpreter not found. Cannot run Faiss probe script.")
+            message(WARNING "Python3_EXECUTABLE not found (should have been by global find_package). Cannot run Faiss probe script.")
         endif()
     else()
         message(STATUS "Faiss probe script not found at ${FAISS_PROBE_SCRIPT}. Skipping auto-detection.")
@@ -195,16 +199,12 @@ if(NOT WITH_FAISS_LIBRARY_FOUND AND DEVSYS_USE_FAISS_GPU)
     endif()
 endif()
 
-
-# --- OpenCV ---
-set(OpenCV_REQUIRED_COMPONENTS core imgproc)
-# if(WITH_CUDA_ENABLED)
-#     list(APPEND OpenCV_REQUIRED_COMPONENTS cudaarithm cudaimgproc cudev)
-# endif()
-find_package(OpenCV REQUIRED COMPONENTS ${OpenCV_REQUIRED_COMPONENTS})
+# --- OpenCV --- (remains the same)
+find_package(OpenCV REQUIRED COMPONENTS core imgproc)
 message(STATUS "OpenCV version: ${OpenCV_VERSION}")
 
 # --- pybind11 ---
+# This should now work correctly as Python3 (Dev) is found
 find_package(pybind11 REQUIRED CONFIG)
 message(STATUS "Pybind11 version: ${pybind11_VERSION}")
 
