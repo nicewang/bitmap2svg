@@ -35,7 +35,7 @@
 #include <faiss/gpu/GpuIndexFlat.h> // For GpuIndexFlatL2
 #include <faiss/gpu/StandardGpuResources.h>
 #include <faiss/Clustering.h>    // For faiss::ClusteringParameters and faiss::Clustering
-#include <faiss/index.h>         // To get faiss::Index and faiss::idx_t
+#include <faiss/Index.h>         // To get faiss::Index and faiss::idx_t
 #endif
 
 // Define the SVG size constraint
