@@ -14,7 +14,7 @@ endif()
 option(DEVSYS_USE_CUDA "Enable CUDA if found on system (for OpenCV, and Faiss if system Faiss is used)" OFF)
 option(DEVSYS_USE_FAISS_GPU "Enable FAISS GPU if system Faiss is found and supports GPU (requires DEVSYS_USE_CUDA)" OFF)
 
-set(PYTHON_FAISS_IS_GPU_ENABLED OFF CACHE BOOL "Whether the Python Faiss package is GPU enabled")
+set(PYTHON_FAISS_IS_GPU_ENABLED ON CACHE BOOL "Whether the Python Faiss package is GPU enabled")
 
 set(WITH_CUDA_ENABLED FALSE)
 set(WITH_FAISS_LIBRARY_FOUND FALSE)
