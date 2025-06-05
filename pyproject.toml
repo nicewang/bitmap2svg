@@ -5,10 +5,9 @@ requires = [
     "ninja",
     "pybind11[global]>=2.10",
     "faiss-gpu>=1.7.0",
-    "tomli",
-    "."
+    "tomli"
 ]
-build-backend = "custom_backend"
+build-backend = "_build_utils.custom_backend"
 
 [project]
 name = "bitmap2svg"
