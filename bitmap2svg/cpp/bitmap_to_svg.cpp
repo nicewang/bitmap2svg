@@ -15,11 +15,9 @@
 #endif
 
 #ifdef WITH_FAISS_GPU // For FAISS GPU K-Means
-// #include <faiss/gpu/GpuClustering.h>
 #include <faiss/gpu/GpuIndexFlat.h> // For GpuIndexFlatL2
 #include <faiss/gpu/StandardGpuResources.h>
 #include <faiss/Clustering.h>    // For faiss::ClusteringParameters and faiss::Clustering
-// #include <faiss/FaissException.h> // For faiss::FaissException
 #endif
 
 // Define the SVG size constraint
@@ -69,8 +67,8 @@ std::pair<cv::Mat, std::vector<Color>> perform_color_quantization_cpp(
     try {
         // Attempt to initialize FAISS GPU resources.
         // If this fails (e.g., no CUDA GPU available for FAISS), it will throw an exception.
-        faiss::gpu::StandardGpuResources res;
-        // If resources initialized, it implies a CUDA device was usable by FAISS.
+        faiss::gpu::StandardGpuResources res; // This tries to allocate a GPU context
+        // If resources initialized, it implied a CUDA device was usable by FAISS.
         std::cout << "FAISS GPU resources initialized. Attempting FAISS K-Means." << std::endl;
 
         cv::Mat input_float_bgr_cpu; // FAISS operates on float data, prepare it on CPU.
@@ -81,11 +79,12 @@ std::pair<cv::Mat, std::vector<Color>> perform_color_quantization_cpp(
 
         if (n_pixels == 0) {
             std::cerr << "Error: No samples to process for FAISS k-means (data prepared on CPU)." << std::endl;
-            throw faiss::FaissException("No samples to process for FAISS k-means");
+            // Throw a standard exception since faiss::FaissError header might be missing.
+            throw std::runtime_error("No samples to process for FAISS k-means.");
         }
         if (n_pixels < k) { // Cannot have more clusters than samples
             k = n_pixels;
-            if (k == 0) throw faiss::FaissException("k became 0 after n_pixels check");
+            if (k == 0) throw std::runtime_error("k became 0 after n_pixels check.");
         }
         num_colors_target = k; // Update output parameter with potentially adjusted k
 
@@ -108,24 +107,24 @@ std::pair<cv::Mat, std::vector<Color>> perform_color_quantization_cpp(
         // cp.seed = 1234; // For reproducible k-means, if desired
 
         faiss::Clustering clustering(dim, k, cp);
-        // Train k-means model using CPU data. FAISS GPU will handle data transfer internally.
-        clustering.train(n_pixels, h_samples_cpu_ptr, res);
+        // Train k-means model using CPU data. FAISS GPU will handle data transfer internally if `res` is passed.
+        clustering.train(n_pixels, h_samples_cpu_ptr, res); // Pass the GPU resources
 
         if (clustering.centroids.empty()) {
             std::cerr << "Error: FAISS k-means (GPU path) returned 0 centroids." << std::endl;
-            throw faiss::FaissException("FAISS k-means (GPU path) returned 0 centroids.");
+            throw std::runtime_error("FAISS k-means (GPU path) returned 0 centroids.");
         }
         
         num_colors_target = clustering.centroids.size() / dim; // Actual number of clusters found
         if (num_colors_target == 0) {
             std::cerr << "Error: FAISS k-means (GPU path) resulted in 0 valid centroids after division by dim." << std::endl;
-            throw faiss::FaissException("FAISS k-means (GPU path) 0 valid centroids after dim division.");
+            throw std::runtime_error("FAISS k-means (GPU path) 0 valid centroids after dim division.");
         }
 
         std::vector<float> h_centroids_bgr = clustering.centroids; // Download centroids (BGR order as per input)
 
         // Assign labels to original samples using the found centroids
-        faiss::gpu::GpuIndexFlatL2 centroid_index(&res, dim); // GPU index for searching
+        faiss::gpu::GpuIndexFlatL2 centroid_index(&res, dim); // GPU index for searching, pass res
         centroid_index.add(num_colors_target, h_centroids_bgr.data()); // Add centroids (from CPU) to GPU index
 
         std::vector<faiss::idx_t> h_labels(n_pixels); // Labels for each pixel (on CPU)
@@ -164,7 +163,7 @@ std::pair<cv::Mat, std::vector<Color>> perform_color_quantization_cpp(
                          pixel[1] = static_cast<unsigned char>(std::max(0.0f, std::min(255.0f, h_centroids_bgr[1]))); // G
                          pixel[2] = static_cast<unsigned char>(std::max(0.0f, std::min(255.0f, h_centroids_bgr[2]))); // R
                     } else { // Black if no centroids
-                         quantized_image_bgr_cpu.at<cv::Vec3b>(r_idx, c_idx) = cv::Vec3b(0,0,0);
+                         quantized_image_bgr_cpu.at<cv::Vec3b>(0,0) = cv::Vec3b(0,0,0); // Use 0,0 for default if no valid centroids
                     }
                     if (cluster_idx < 0) { // Should not happen with faiss search k=1
                         std::cerr << "Warning: FAISS returned invalid cluster_idx " << cluster_idx << " for pixel (" << r_idx << "," << c_idx << ")" << std::endl;
@@ -175,10 +174,13 @@ std::pair<cv::Mat, std::vector<Color>> perform_color_quantization_cpp(
         std::cout << "FAISS GPU K-Means (using CPU data source) successful." << std::endl;
         return {quantized_image_bgr_cpu, palette_vector_rgb};
 
-    } catch (const faiss::FaissException& ex) {
-        std::cerr << "FAISS Exception in GPU quantization path: " << ex.what() << std::endl;
+    } catch (const std::runtime_error& ex) { // Catch std::runtime_error for our custom throws
+        std::cerr << "Runtime Error in FAISS GPU quantization path: " << ex.what() << std::endl;
         std::cerr << "Falling back to CPU (OpenCV) K-Means." << std::endl;
         // Fallback to CPU path below
+    } catch (const faiss::FaissError& ex) { // Catch faiss::FaissError if it happens to be thrown internally by FAISS
+        std::cerr << "FAISS Error (caught indirectly) in GPU quantization path: " << ex.what() << std::endl;
+        std::cerr << "Falling back to CPU (OpenCV) K-Means." << std::endl;
     } catch (const cv::Exception& ex) { // Catch OpenCV specific exceptions (e.g., from convertTo, reshape if something unexpected)
         std::cerr << "OpenCV Core Exception in FAISS GPU data prep path: " << ex.what() << std::endl;
         std::cerr << "Falling back to CPU (OpenCV) K-Means." << std::endl;
@@ -285,13 +287,13 @@ std::pair<cv::Mat, std::vector<Color>> perform_color_quantization_cpp(
                              pixel[1] = palette_vector_rgb_fallback[0].g;
                              pixel[2] = palette_vector_rgb_fallback[0].r;
                          } else {
-                             quantized_image_bgr_cpu_fallback.at<cv::Vec3b>(r_idx, c_idx) = cv::Vec3b(0,0,0); // Black
+                             quantized_image_bgr_cpu_fallback.at<cv::Vec3b>(0,0) = cv::Vec3b(0,0,0); // Use 0,0 for default if no palette
                          }
                     }
                 } else {
                     // This case (sample_idx out of bounds for labels_cpu_fallback) should ideally not happen if reshape and total are correct
                     std::cerr << "Warning: sample_idx out of bounds for labels_cpu_fallback. Pixel (" << r_idx << "," << c_idx << ")" << std::endl;
-                    quantized_image_bgr_cpu_fallback.at<cv::Vec3b>(r_idx, c_idx) = cv::Vec3b(0,0,0); // Black
+                    quantized_image_bgr_cpu_fallback.at<cv::Vec3b>(0,0) = cv::Vec3b(0,0,0); // Use 0,0 for default if out of bounds
                 }
             }
         }
