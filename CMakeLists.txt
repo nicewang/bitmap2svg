@@ -44,9 +44,9 @@ endif()
 
 
 # --- Faiss Integration (using add_subdirectory) ---
-set(FAISS_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/external/faiss_sources")
+set(FAISS_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/external/faiss")
 
-if(EXISTS "${FAISS_SOURCE_DIR}/CMakeLists.txt") # 确保 Faiss 源码目录存在
+if(EXISTS "${FAISS_SOURCE_DIR}/CMakeLists.txt")
     message(STATUS "Found Faiss source directory: ${FAISS_SOURCE_DIR}")
 
     # Pass relevant options to Faiss's CMakeLists.txt
@@ -58,20 +58,12 @@ if(EXISTS "${FAISS_SOURCE_DIR}/CMakeLists.txt") # 确保 Faiss 源码目录存�
     set(FAISS_BUILD_BENCHMARKS OFF CACHE BOOL "Disable Faiss benchmarks build" FORCE)
     set(FAISS_OPT_LEVEL "O3" CACHE STRING "Faiss optimization level" FORCE) # Optional: match your project's O3
 
-    # If you need specific BLAS libraries for Faiss, you might set them here:
+    # If need specific BLAS libraries for Faiss, you might set them here:
     # set(BLAS_LIBRARIES "-lmkl_rt" CACHE STRING "BLAS library for Faiss" FORCE) # Example for MKL
     # set(LAPACK_LIBRARIES "-lmkl_rt" CACHE STRING "LAPACK library for Faiss" FORCE) # Example for MKL
 
-    # # Add Faiss as a subdirectory. This will execute Faiss's CMakeLists.txt
-    # add_subdirectory(${FAISS_SOURCE_DIR} "${CMAKE_CURRENT_BINARY_DIR}/faiss_build")
-
-    # ===== Debug =====
-    set(FAISS_PERSISTENT_BUILD_DIR "${CMAKE_CURRENT_SOURCE_DIR}/faiss_build_logs_and_cache")
-    message(STATUS "Faiss will build into a persistent directory for debugging: ${FAISS_PERSISTENT_BUILD_DIR}")
-    file(MAKE_DIRECTORY "${FAISS_PERSISTENT_BUILD_DIR}")
-
-    add_subdirectory(${FAISS_SOURCE_DIR} "${FAISS_PERSISTENT_BUILD_DIR}")
-    # ===== Debug End =====
+    # Add Faiss as a subdirectory. This will execute Faiss's CMakeLists.txt
+    add_subdirectory(${FAISS_SOURCE_DIR} "${CMAKE_CURRENT_BINARY_DIR}/faiss_build")
 
     # After add_subdirectory, Faiss's targets should be available.
     # The GPU target name is typically 'faiss_gpu', CPU is 'faiss'
