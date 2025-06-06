@@ -35,7 +35,7 @@ if(DEVSYS_USE_CUDA)
         endif()
         message(STATUS "  CUDA Include Dirs (approx): ${CUDA_INCLUDE_DIRS}")
 
-        # --- DEBUG: Check for CUDA::cublas target ---
+        # DEBUG: Check for CUDA::cublas target
         if(TARGET CUDA::cublas)
             message(STATUS "DEBUG: CUDA::cublas target IS available in current CMake scope.")
             set(CUBLAS_LIB_FOR_FAISS "CUDA::cublas" CACHE STRING "cuBLAS library target for Faiss" FORCE)
@@ -52,7 +52,7 @@ if(DEVSYS_USE_CUDA)
                 set(CUBLAS_LIB_FOR_FAISS "" CACHE STRING "cuBLAS library path for Faiss" FORCE) # Ensure it's empty if not found
             endif()
         endif()
-        # --- END DEBUG ---
+        # END DEBUG
 
     else()
         message(WARNING "CUDA Toolkit not found, but DEVSYS_USE_CUDA is ON. CUDA-dependent features will be disabled.")
@@ -78,35 +78,47 @@ if(EXISTS "${FAISS_SOURCE_DIR}/CMakeLists.txt")
     set(FAISS_BUILD_BENCHMARKS OFF CACHE BOOL "Disable Faiss benchmarks build" FORCE)
     set(FAISS_OPT_LEVEL "O3" CACHE STRING "Faiss optimization level" FORCE) # Optional: match your project's O3
 
-    # *** IMPORTANT: Force Faiss to use the manually found cuBLAS library path if CUDA::cublas target is not available ***
-    # This specifically addresses the "CUDA::cublas target IS NOT available" issue.
-    if(CUBLAS_LIB_FOR_FAISS) # Only if we found a path or target for cublas
+    # Force Faiss to use the manually found cuBLAS library path if CUDA::cublas target is not available
+    if(CUBLAS_LIB_FOR_FAISS)
         set(FAISS_LIBRARIES_FOR_GPU "${CUBLAS_LIB_FOR_FAISS}" CACHE STRING "Faiss GPU libraries to link (cuBLAS)" FORCE)
-        # Faiss's faiss/gpu/CMakeLists.txt uses target_link_libraries(faiss PRIVATE CUDA::cudart CUDA::cublas)
-        # We need to inject our found cublas.
-        # This might require a slight modification in Faiss's faiss/gpu/CMakeLists.txt if direct injection via cache var doesn't work.
-        # For now, we will hope setting FAISS_LIBRARIES_FOR_GPU overrides/informs it.
-        # If this doesn't work, we might need to patch faiss/gpu/CMakeLists.txt to use this variable.
-        # Let's try this first.
     else()
         message(WARNING "FAISS GPU will likely fail as no cublas library or target could be reliably found.")
     endif()
-
 
     # Add Faiss as a subdirectory. This will execute Faiss's CMakeLists.txt
     add_subdirectory(${FAISS_SOURCE_DIR} "${CMAKE_CURRENT_BINARY_DIR}/faiss_build")
 
     # After add_subdirectory, Faiss's targets should be available.
-    # The GPU target name is typically 'faiss_gpu', CPU is 'faiss'
-    if(TARGET faiss_gpu AND WITH_CUDA_ENABLED)
-        set(FAISS_TARGET_TO_LINK faiss_gpu)
+    # Re-evaluate: Faiss 1.7.2 might integrate GPU into 'faiss' target itself,
+    # rather than creating a separate 'faiss_gpu' target.
+    # If FAISS_ENABLE_GPU was TRUE and CUDA is enabled, we assume the 'faiss' target
+    # now includes GPU capabilities.
+
+    # DEBUG: Check for target existence immediately after add_subdirectory
+    if(TARGET faiss_gpu)
+        message(STATUS "DEBUG: After add_subdirectory, 'faiss_gpu' target IS detected by parent project. (Unexpected for Faiss 1.7.2)")
+    else()
+        message(STATUS "DEBUG: After add_subdirectory, 'faiss_gpu' target IS NOT detected by parent project. (Expected for Faiss 1.7.2)")
+    endif()
+    if(TARGET faiss)
+        message(STATUS "DEBUG: After add_subdirectory, 'faiss' target IS detected by parent project.")
+    else()
+        message(FATAL_ERROR "DEBUG: After add_subdirectory, 'faiss' target IS NOT detected by parent project. This is a critical error.")
+    endif()
+    # END DEBUG
+
+    # Adjusting logic for Faiss 1.7.2's probable integration of GPU into 'faiss' target.
+    # If Faiss was configured with GPU enabled AND CUDA is enabled, we assume the 'faiss' target
+    # now has GPU capabilities.
+    if(TARGET faiss AND FAISS_ENABLE_GPU AND WITH_CUDA_ENABLED)
+        set(FAISS_TARGET_TO_LINK faiss)
         set(WITH_FAISS_GPU_ENABLED TRUE)
-        message(STATUS "Faiss GPU target 'faiss_gpu' found and will be linked.")
+        message(STATUS "Faiss target 'faiss' found. Assuming GPU support enabled because FAISS_ENABLE_GPU=TRUE and CUDA_ENABLED=TRUE.")
     elseif(TARGET faiss)
         set(FAISS_TARGET_TO_LINK faiss)
         message(STATUS "Faiss CPU target 'faiss' found and will be linked.")
     else()
-        message(FATAL_ERROR "Faiss targets (faiss_gpu or faiss) not found after adding subdirectory. Check Faiss build configuration.")
+        message(FATAL_ERROR "Faiss target 'faiss' not found after adding subdirectory. Check Faiss build configuration.")
     endif()
 
     # Set common variables for linking
