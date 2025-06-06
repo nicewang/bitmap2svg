@@ -176,7 +176,33 @@ foreach(header ${FAISS_GPU_HEADERS})
 endforeach()
 
 find_package(CUDAToolkit REQUIRED)
-target_link_libraries(faiss PRIVATE CUDA::cudart CUDA::cublas)
-target_link_libraries(faiss_avx2 PRIVATE CUDA::cudart CUDA::cublas)
+
+# target_link_libraries(faiss PRIVATE CUDA::cudart CUDA::cublas)
+# target_link_libraries(faiss_avx2 PRIVATE CUDA::cudart CUDA::cublas)
+
+# Try to find cublas library
+# Use cached variable from parent if available, otherwise search explicitly
+find_library(LOCAL_CUBLAS_LIB NAMES cublas cublasLt
+    HINTS ${CUDA_TOOLKIT_ROOT_DIR}/lib64
+          ${CUDA_TOOLKIT_ROOT_DIR}/targets/x86_64-linux/lib
+    NO_DEFAULT_PATH
+)
+
+if(LOCAL_CUBLAS_LIB)
+    message(STATUS "Faiss GPU: Linking with manual cublas library: ${LOCAL_CUBLAS_LIB}")
+    set(FAISS_GPU_LINK_LIBS CUDA::cudart "${LOCAL_CUBLAS_LIB}")
+elseif(TARGET CUDA::cublas)
+    message(STATUS "Faiss GPU: Linking with CMake target CUDA::cublas.")
+    set(FAISS_GPU_LINK_LIBS CUDA::cudart CUDA::cublas)
+else()
+    # This case implies neither manual cublas nor CUDA::cublas target is found.
+    # This branch should ideally not be hit if parent CMakeLists.txt correctly identifies cublas.
+    # If it is hit, it means Faiss GPU build will fail.
+    message(FATAL_ERROR "Faiss GPU: Could not find cublas library or CMake target. GPU build impossible.")
+endif()
+
+target_link_libraries(faiss PRIVATE ${FAISS_GPU_LINK_LIBS})
+target_link_libraries(faiss_avx2 PRIVATE ${FAISS_GPU_LINK_LIBS})
+
 target_compile_options(faiss PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:-Xfatbin=-compress-all>)
 target_compile_options(faiss_avx2 PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:-Xfatbin=-compress-all>)
