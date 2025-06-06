@@ -38,14 +38,18 @@ if(DEVSYS_USE_CUDA)
         # --- DEBUG: Check for CUDA::cublas target ---
         if(TARGET CUDA::cublas)
             message(STATUS "DEBUG: CUDA::cublas target IS available in current CMake scope.")
+            set(CUBLAS_LIB_FOR_FAISS "CUDA::cublas" CACHE STRING "cuBLAS library target for Faiss" FORCE)
         else()
             message(STATUS "DEBUG: CUDA::cublas target IS NOT available in current CMake scope. Faiss GPU build might fail.")
             # Attempt to manually find cublas library, if not found, this is likely the issue
             find_library(CUBLAS_LIB_PATH NAMES cublas cublasLt HINTS "/usr/local/cuda/lib64" "/usr/local/cuda/targets/x86_64-linux/lib" NO_DEFAULT_PATH)
             if(CUBLAS_LIB_PATH)
                 message(STATUS "DEBUG: Manual cublas library found at: ${CUBLAS_LIB_PATH}")
+                # Pass the found path to Faiss's build
+                set(CUBLAS_LIB_FOR_FAISS "${CUBLAS_LIB_PATH}" CACHE STRING "cuBLAS library path for Faiss" FORCE)
             else()
                 message(WARNING "DEBUG: Manual cublas library NOT FOUND in common CUDA paths. This is a likely root cause for Faiss GPU failure.")
+                set(CUBLAS_LIB_FOR_FAISS "" CACHE STRING "cuBLAS library path for Faiss" FORCE) # Ensure it's empty if not found
             endif()
         endif()
         # --- END DEBUG ---
@@ -74,9 +78,20 @@ if(EXISTS "${FAISS_SOURCE_DIR}/CMakeLists.txt")
     set(FAISS_BUILD_BENCHMARKS OFF CACHE BOOL "Disable Faiss benchmarks build" FORCE)
     set(FAISS_OPT_LEVEL "O3" CACHE STRING "Faiss optimization level" FORCE) # Optional: match your project's O3
 
-    # If need specific BLAS libraries for Faiss, you might set them here:
-    # set(BLAS_LIBRARIES "-lmkl_rt" CACHE STRING "BLAS library for Faiss" FORCE) # Example for MKL
-    # set(LAPACK_LIBRARIES "-lmkl_rt" CACHE STRING "LAPACK library for Faiss" FORCE) # Example for MKL
+    # *** IMPORTANT: Force Faiss to use the manually found cuBLAS library path if CUDA::cublas target is not available ***
+    # This specifically addresses the "CUDA::cublas target IS NOT available" issue.
+    if(CUBLAS_LIB_FOR_FAISS) # Only if we found a path or target for cublas
+        set(FAISS_LIBRARIES_FOR_GPU "${CUBLAS_LIB_FOR_FAISS}" CACHE STRING "Faiss GPU libraries to link (cuBLAS)" FORCE)
+        # Faiss's faiss/gpu/CMakeLists.txt uses target_link_libraries(faiss PRIVATE CUDA::cudart CUDA::cublas)
+        # We need to inject our found cublas.
+        # This might require a slight modification in Faiss's faiss/gpu/CMakeLists.txt if direct injection via cache var doesn't work.
+        # For now, we will hope setting FAISS_LIBRARIES_FOR_GPU overrides/informs it.
+        # If this doesn't work, we might need to patch faiss/gpu/CMakeLists.txt to use this variable.
+        # Let's try this first.
+    else()
+        message(WARNING "FAISS GPU will likely fail as no cublas library or target could be reliably found.")
+    endif()
+
 
     # Add Faiss as a subdirectory. This will execute Faiss's CMakeLists.txt
     add_subdirectory(${FAISS_SOURCE_DIR} "${CMAKE_CURRENT_BINARY_DIR}/faiss_build")
