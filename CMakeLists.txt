@@ -34,9 +34,25 @@ if(DEVSYS_USE_CUDA)
             set(CUDA_INCLUDE_DIRS ${CMAKE_CUDA_IMPLICIT_INCLUDE_DIRECTORIES})
         endif()
         message(STATUS "  CUDA Include Dirs (approx): ${CUDA_INCLUDE_DIRS}")
+
+        # --- DEBUG: Check for CUDA::cublas target ---
+        if(TARGET CUDA::cublas)
+            message(STATUS "DEBUG: CUDA::cublas target IS available in current CMake scope.")
+        else()
+            message(STATUS "DEBUG: CUDA::cublas target IS NOT available in current CMake scope. Faiss GPU build might fail.")
+            # Attempt to manually find cublas library, if not found, this is likely the issue
+            find_library(CUBLAS_LIB_PATH NAMES cublas cublasLt HINTS "/usr/local/cuda/lib64" "/usr/local/cuda/targets/x86_64-linux/lib" NO_DEFAULT_PATH)
+            if(CUBLAS_LIB_PATH)
+                message(STATUS "DEBUG: Manual cublas library found at: ${CUBLAS_LIB_PATH}")
+            else()
+                message(WARNING "DEBUG: Manual cublas library NOT FOUND in common CUDA paths. This is a likely root cause for Faiss GPU failure.")
+            endif()
+        endif()
+        # --- END DEBUG ---
+
     else()
         message(WARNING "CUDA Toolkit not found, but DEVSYS_USE_CUDA is ON. CUDA-dependent features will be disabled.")
-        set(DEVSYS_USE_CUDA FALSE) # 禁用 CUDA
+        set(DEVSYS_USE_CUDA FALSE) # Disable CUDA
     endif()
 else()
     message(STATUS "CUDA support is explicitly disabled for C++ compilation.")
@@ -44,7 +60,7 @@ endif()
 
 
 # --- Faiss Integration (using add_subdirectory) ---
-set(FAISS_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/external/faiss")
+set(FAISS_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/external/faiss_sources")
 
 if(EXISTS "${FAISS_SOURCE_DIR}/CMakeLists.txt")
     message(STATUS "Found Faiss source directory: ${FAISS_SOURCE_DIR}")
