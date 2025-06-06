@@ -62,13 +62,16 @@ if(EXISTS "${FAISS_SOURCE_DIR}/CMakeLists.txt") # 确保 Faiss 源码目录存�
     # set(BLAS_LIBRARIES "-lmkl_rt" CACHE STRING "BLAS library for Faiss" FORCE) # Example for MKL
     # set(LAPACK_LIBRARIES "-lmkl_rt" CACHE STRING "LAPACK library for Faiss" FORCE) # Example for MKL
 
-    # Add Faiss as a subdirectory. This will execute Faiss's CMakeLists.txt
-    add_subdirectory(${FAISS_SOURCE_DIR} "${CMAKE_CURRENT_BINARY_DIR}/faiss_build")
+    # # Add Faiss as a subdirectory. This will execute Faiss's CMakeLists.txt
+    # add_subdirectory(${FAISS_SOURCE_DIR} "${CMAKE_CURRENT_BINARY_DIR}/faiss_build")
 
-    # --- DEBUG: Force an error to inspect Faiss build directory ---
-    # When this error appears, pip will print the full path of the temp build directory.
-    # Go into that directory and then into 'build/faiss_build' to inspect CMakeCache.txt and logs.
-    message(FATAL_ERROR "STOP FOR DEBUGGING: Faiss subdirectory has been configured. Now check its build directory for logs.")
+    # ===== Debug =====
+    set(FAISS_PERSISTENT_BUILD_DIR "${CMAKE_CURRENT_SOURCE_DIR}/faiss_build_logs_and_cache")
+    message(STATUS "Faiss will build into a persistent directory for debugging: ${FAISS_PERSISTENT_BUILD_DIR}")
+    file(MAKE_DIRECTORY "${FAISS_PERSISTENT_BUILD_DIR}")
+
+    add_subdirectory(${FAISS_SOURCE_DIR} "${FAISS_PERSISTENT_BUILD_DIR}")
+    # ===== Debug End =====
 
     # After add_subdirectory, Faiss's targets should be available.
     # The GPU target name is typically 'faiss_gpu', CPU is 'faiss'
