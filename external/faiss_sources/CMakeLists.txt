@@ -46,8 +46,8 @@ add_subdirectory(demos)
 add_subdirectory(tutorial/cpp)
 
 # CTest must be included in the top level to enable `make test` target.
-include(CTest)
-if(BUILD_TESTING)
+# include(CTest)
+if(FALSE)
   add_subdirectory(tests)
 
   if(FAISS_ENABLE_GPU)
