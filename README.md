@@ -1,14 +1,16 @@
 # bitmap2svg
-## Version: 0.2.3
+## Version: 0.2.3.2
 ### 1. Introduction
-A library to convert bitmaps to SVG, using C++ and OpenCV
+A library to convert bitmaps to SVG, using C++, OpenCV, with potential CUDA/FAISS GPU acceleration.
 
 * The `max_svg_size` of converted svg is `10000`
-* Compared with v0.2.1, the conversion effect is sacrificed, especially the depiction of details.
+* Compared with v0.2.1, the conversion effect is sacrificed, e.g. the depiction of details.
 
 ### 2. Package Structure
 ```
 ${project_workspace}/
+├── external/
+│   ├── faiss_sources/
 ├── bitmap2svg/
 │   ├── __init__.py
 │   └── cpp/
@@ -35,6 +37,7 @@ pip install .
 pip install -q opencv-python scikit-image pillow
 pip install scikit-build-core cmake ninja pybind11
 # then install this lib
-pip install git+https://github.com/Opensource-Nice-Arishi/kaggle_drawing_with_LLMs.git@bitmap2svg-v0.2.3
+pip install git+https://github.com/Opensource-Nice-Arishi/kaggle_drawing_with_LLMs/tree/bitmap2svg-cu-v0.2.3.2
 
 ```
+### 4. Dependencies and the Correspoding Patches
