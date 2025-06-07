@@ -104,8 +104,8 @@ std::string bitmapToSvg_with_internal_quantization(
     double simplification_epsilon_factor = 0.009,
     double min_contour_area = 10.0,
     int max_features_to_render = 0,
-    int original_svg_width = 0,
-    int original_svg_height = 0
+    int original_svg_width = -1,
+    int original_svg_height = -1
 );
 
 #endif // BITMAP_TO_SVG_H
