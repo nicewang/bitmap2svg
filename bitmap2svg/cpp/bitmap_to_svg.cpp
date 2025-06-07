@@ -30,30 +30,6 @@ constexpr int MIN_CLUSTER_SIZE = 1;
 constexpr int MAX_CLUSTER_SIZE = 256;
 constexpr double MIN_EPSILON = 0.5;
 
-// Optimization 2: Add error code enumeration
-enum class ConversionResult {
-    SUCCESS,
-    INVALID_INPUT,
-    QUANTIZATION_FAILED,
-    SIZE_LIMIT_EXCEEDED
-};
-
-// Optimization 10: Use more efficient contour importance calculation
-struct ContourFeature {
-    std::vector<cv::Point> points;
-    std::string color_hex;
-    double area;
-    double importance;
-    
-    // Add move constructor
-    ContourFeature(std::vector<cv::Point>&& pts, std::string&& color, double a, double imp)
-        : points(std::move(pts)), color_hex(std::move(color)), area(a), importance(imp) {}
-    
-    bool operator<(const ContourFeature& other) const noexcept {
-        return importance > other.importance; // Descending order
-    }
-};
-
 // Optimization 3: Use more efficient color compression function
 std::string compress_hex_color_optimized(unsigned char r, unsigned char g, unsigned char b) noexcept {
     // Pre-allocate string capacity
