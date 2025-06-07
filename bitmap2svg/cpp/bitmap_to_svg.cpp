@@ -7,401 +7,528 @@
 #include <algorithm>
 #include <iomanip>
 #include <string>
-#include <stdexcept> // For std::runtime_error
+#include <stdexcept>
+#include <memory>
+#include <unordered_set>
 
-#ifdef WITH_CUDA // For OpenCV CUDA modules
+#ifdef WITH_CUDA
 // #include <opencv2/cudaarithm.hpp>
 // #include <opencv2/cudaimgproc.hpp>
-// #include "opencv2/cudev/common.hpp" // For cv::cuda::Stream
 #endif
-
-#ifdef WITH_FAISS_GPU // For FAISS GPU K-Means
-#include "faiss/gpu/GpuIndexFlat.h" // For GpuIndexFlatL2
-#include "faiss/gpu/StandardGpuResources.h"
-#include "faiss/Clustering.h"    // For faiss::ClusteringParameters and faiss::Clustering
-#include "faiss/Index.h"         // To get faiss::Index and faiss::Index::idx_t (using 'Index.h' as per your last attempt)
-#endif
-
-// --- TEMPORARY DEBUGGING CODE ---
-#ifndef FAISS_INDEX_H
-#pragma message("WARNING: faiss/Index.h (or index.h) does NOT define FAISS_INDEX_H. This might indicate an incomplete or incorrect header.")
-#endif
-// --- END TEMPORARY DEBUGGING CODE ---
-
-// Define the SVG size constraint
-const long MAX_SVG_SIZE_BYTES = 10000;
-const long SVG_SIZE_SAFETY_MARGIN = 1000; // Buffer to stop before hitting the absolute max
-
-// Helper function to convert RGB to compressed hex (e.g., #RRGGBB to #RGB if possible)
-std::string compress_hex_color_cpp(unsigned char r, unsigned char g, unsigned char b) {
-    std::stringstream ss;
-    ss << "#";
-    // Check if color can be compressed to #RGB format
-    if (r % 17 == 0 && g % 17 == 0 && b % 17 == 0 &&
-        (r / 17) < 16 && (g / 17) < 16 && (b / 17) < 16) { // Ensure single digit hex
-        ss << std::hex << (r / 17) << (g / 17) << (b / 17);
-    } else {
-        ss << std::hex << std::setw(2) << std::setfill('0') << static_cast<int>(r)
-           << std::setw(2) << std::setfill('0') << static_cast<int>(g)
-           << std::setw(2) << std::setfill('0') << static_cast<int>(b);
-    }
-    return ss.str();
-}
-
-std::pair<cv::Mat, std::vector<Color>> perform_color_quantization_cpp(
-    const cv::Mat& input_img_bgr, // Input BGR image (CV_8UC3), OpenCV standard
-    int& num_colors_target        // In: desired num_colors. Out: actual num_colors used.
-) {
-    if (input_img_bgr.empty() || input_img_bgr.channels() != 3) {
-        std::cerr << "Error: Input image for quantization is invalid. Must be 3 channels." << std::endl;
-        return {cv::Mat(), {}};
-    }
-
-    int k = num_colors_target;
-    if (k <= 0) { // Automatic k selection based on pixel count
-        long pixel_count = static_cast<long>(input_img_bgr.rows) * input_img_bgr.cols;
-        if (pixel_count == 0) k = 1;
-        else if (pixel_count < 16384) k = 6;   // Small image
-        else if (pixel_count < 65536) k = 8;   // Medium-small
-        else if (pixel_count < 262144) k = 10; // Medium
-        else k = 12;                           // Large
-    }
-    k = std::max(1, std::min(k, 256)); // Clamp k to a reasonable range
 
 #ifdef WITH_FAISS_GPU
-    // Attempt FAISS GPU path first.
-    try {
-        faiss::gpu::StandardGpuResources res; // Manages GPU resources
-        std::cout << "FAISS GPU resources initialized. Attempting FAISS K-Means." << std::endl;
+#include "faiss/gpu/GpuIndexFlat.h"
+#include "faiss/gpu/StandardGpuResources.h"
+#include "faiss/Clustering.h"
+#include "faiss/Index.h"
+#endif
 
-        cv::Mat input_float_bgr_cpu;
-        input_img_bgr.convertTo(input_float_bgr_cpu, CV_32FC3);
+// Optimization 1: Use constexpr and more reasonable constants
+constexpr long MAX_SVG_SIZE_BYTES = 10000;
+constexpr long SVG_SIZE_SAFETY_MARGIN = 1000;
+constexpr int MIN_CLUSTER_SIZE = 1;
+constexpr int MAX_CLUSTER_SIZE = 256;
+constexpr double MIN_EPSILON = 0.5;
 
-        long n_pixels = input_float_bgr_cpu.rows * input_float_bgr_cpu.cols;
-        int dim = 3;
+// Optimization 2: Add error code enumeration
+enum class ConversionResult {
+    SUCCESS,
+    INVALID_INPUT,
+    QUANTIZATION_FAILED,
+    SIZE_LIMIT_EXCEEDED
+};
 
-        if (n_pixels == 0) {
-            std::cerr << "Error: No samples to process for FAISS k-means (data prepared on CPU)." << std::endl;
-            throw std::runtime_error("No samples to process for FAISS k-means.");
-        }
-        if (n_pixels < k) {
-            k = n_pixels;
-            if (k == 0) throw std::runtime_error("k became 0 after n_pixels check.");
-        }
-        num_colors_target = k;
+// Basic data structures
+struct Color {
+    unsigned char r, g, b;
+    
+    Color() : r(0), g(0), b(0) {}
+    Color(unsigned char red, unsigned char green, unsigned char blue) 
+        : r(red), g(green), b(blue) {}
+};
 
-        if (!input_float_bgr_cpu.isContinuous()) {
-            input_float_bgr_cpu = input_float_bgr_cpu.clone();
-        }
-        cv::Mat samples_bgr_cpu_for_faiss = input_float_bgr_cpu.reshape(1, n_pixels);
-        const float* h_samples_cpu_ptr = samples_bgr_cpu_for_faiss.ptr<float>();
-
-        faiss::ClusteringParameters cp;
-        cp.niter = 50;
-        cp.nredo = 5;
-        cp.verbose = false;
-        cp.spherical = false;
-        cp.update_index = true;
-        cp.min_points_per_centroid = std::max(1, static_cast<int>(n_pixels / (k * 20.0f)));
-        cp.max_points_per_centroid = static_cast<int>((n_pixels / static_cast<float>(k)) * 10.0f);
-
-        faiss::Clustering clustering(dim, k, cp);
-
-        // --- Crucial change for FAISS GPU Clustering ---
-        // For GPU clustering, the train method typically expects a GPU index
-        // to manage the data and perform the clustering on the GPU.
-        // We create a dummy GpuIndexFlatL2 for this purpose.
-        faiss::gpu::GpuIndexFlatL2 gpu_index(&res, dim);
-        clustering.train(n_pixels, h_samples_cpu_ptr, gpu_index); // Pass the GPU index
-
-        // Centroids are now in clustering.centroids (still on CPU, transferred back by FAISS)
-        if (clustering.centroids.empty()) {
-            std::cerr << "Error: FAISS k-means (GPU path) returned 0 centroids." << std::endl;
-            throw std::runtime_error("FAISS k-means (GPU path) returned 0 centroids.");
-        }
-        
-        num_colors_target = clustering.centroids.size() / dim;
-        if (num_colors_target == 0) {
-            std::cerr << "Error: FAISS k-means (GPU path) resulted in 0 valid centroids after division by dim." << std::endl;
-            throw std::runtime_error("FAISS k-means (GPU path) 0 valid centroids after dim division.");
-        }
-
-        std::vector<float> h_centroids_bgr = clustering.centroids;
-
-        // Assign labels using the found centroids on GPU
-        // The GpuIndexFlatL2 created earlier is now used for search.
-        // Or, if we want to be explicit, create a new one for searching centroids
-        // (though 'gpu_index' from clustering.train should already hold them if update_index was true)
-        // Let's create a new one to be safe if the previous one was modified by train implicitly.
-        faiss::gpu::GpuIndexFlatL2 search_centroid_index(&res, dim); 
-        search_centroid_index.add(num_colors_target, h_centroids_bgr.data()); 
-
-        std::vector<faiss::Index::idx_t> h_labels(n_pixels);
-        std::vector<float> h_distances(n_pixels);
-        search_centroid_index.search(n_pixels, h_samples_cpu_ptr, 1, h_distances.data(), h_labels.data());
-
-        std::vector<Color> palette_vector_rgb;
-        palette_vector_rgb.reserve(num_colors_target);
-        for (int i = 0; i < num_colors_target; ++i) {
-            palette_vector_rgb.push_back({
-                static_cast<unsigned char>(std::max(0.0f, std::min(255.0f, h_centroids_bgr[i * dim + 2]))), // R
-                static_cast<unsigned char>(std::max(0.0f, std::min(255.0f, h_centroids_bgr[i * dim + 1]))), // G
-                static_cast<unsigned char>(std::max(0.0f, std::min(255.0f, h_centroids_bgr[i * dim + 0])))  // B
-            });
-        }
-
-        cv::Mat quantized_image_bgr_cpu(input_img_bgr.size(), input_img_bgr.type());
-        for (long r_idx = 0; r_idx < input_img_bgr.rows; ++r_idx) {
-            for (long c_idx = 0; c_idx < input_img_bgr.cols; ++c_idx) {
-                long sample_idx = r_idx * input_img_bgr.cols + c_idx;
-                faiss::Index::idx_t cluster_idx = h_labels[sample_idx];
-                if (cluster_idx >= 0 && cluster_idx < num_colors_target) {
-                    cv::Vec3b& pixel = quantized_image_bgr_cpu.at<cv::Vec3b>(r_idx, c_idx);
-                    pixel[0] = static_cast<unsigned char>(std::max(0.0f, std::min(255.0f, h_centroids_bgr[cluster_idx * dim + 0]))); // B
-                    pixel[1] = static_cast<unsigned char>(std::max(0.0f, std::min(255.0f, h_centroids_bgr[cluster_idx * dim + 1]))); // G
-                    pixel[2] = static_cast<unsigned char>(std::max(0.0f, std::min(255.0f, h_centroids_bgr[cluster_idx * dim + 2]))); // R
-                } else {
-                    if (!palette_vector_rgb.empty() && h_centroids_bgr.size() >= dim) {
-                         cv::Vec3b& pixel = quantized_image_bgr_cpu.at<cv::Vec3b>(r_idx, c_idx);
-                         pixel[0] = static_cast<unsigned char>(std::max(0.0f, std::min(255.0f, h_centroids_bgr[0]))); // B
-                         pixel[1] = static_cast<unsigned char>(std::max(0.0f, std::min(255.0f, h_centroids_bgr[1]))); // G
-                         pixel[2] = static_cast<unsigned char>(std::max(0.0f, std::min(255.0f, h_centroids_bgr[2]))); // R
-                    } else {
-                         quantized_image_bgr_cpu.at<cv::Vec3b>(r_idx, c_idx) = cv::Vec3b(0,0,0); // Default to black
-                    }
-                    if (cluster_idx < 0) {
-                        std::cerr << "Warning: FAISS returned invalid cluster_idx " << cluster_idx << " for pixel (" << r_idx << "," << c_idx << ")" << std::endl;
-                    }
-                }
-            }
-        }
-        std::cout << "FAISS GPU K-Means (using CPU data source) successful." << std::endl;
-        return {quantized_image_bgr_cpu, palette_vector_rgb};
-
-    } catch (const std::runtime_error& ex) { // Catch our custom runtime errors
-        std::cerr << "Runtime Error in FAISS GPU quantization path: " << ex.what() << std::endl;
-        std::cerr << "Falling back to CPU (OpenCV) K-Means." << std::endl;
-    } catch (const std::exception& ex) { // Catch all other standard exceptions, including FAISS internal ones if they derive from std::exception
-        std::cerr << "Standard Exception in FAISS GPU path: " << ex.what() << std::endl;
-        std::cerr << "Falling back to CPU (OpenCV) K-Means." << std::endl;
+// Optimization 10: Use more efficient contour importance calculation
+struct ContourFeature {
+    std::vector<cv::Point> points;
+    std::string color_hex;
+    double area;
+    double importance;
+    
+    // Add move constructor
+    ContourFeature(std::vector<cv::Point>&& pts, std::string&& color, double a, double imp)
+        : points(std::move(pts)), color_hex(std::move(color)), area(a), importance(imp) {}
+    
+    bool operator<(const ContourFeature& other) const noexcept {
+        return importance > other.importance; // Descending order
     }
-#endif // WITH_FAISS_GPU
+};
 
-    // Fallback to Original CPU Path (OpenCV k-means) or if FAISS_GPU path failed or was not compiled.
-    std::cout << "Using CPU (OpenCV) K-Means path for color quantization." << std::endl;
-    cv::Mat samples_bgr_cpu_fallback(input_img_bgr.total(), 3, CV_32F);
-    cv::Mat input_float_bgr_cpu_fallback;
-    input_img_bgr.convertTo(input_float_bgr_cpu_fallback, CV_32F);
-    samples_bgr_cpu_fallback = input_float_bgr_cpu_fallback.reshape(1, input_img_bgr.total());
-
-    if (samples_bgr_cpu_fallback.rows == 0) {
-        std::cerr << "Error: No samples for OpenCV k-means." << std::endl;
-        return {cv::Mat(), {}};
-    }
-    if (samples_bgr_cpu_fallback.rows < k) { k = samples_bgr_cpu_fallback.rows; if (k == 0) return {cv::Mat(), {}}; }
-    num_colors_target = k;
-
-    cv::Mat labels_cpu_fallback;
-    cv::Mat centers_bgr_cpu_fallback;
-    cv::TermCriteria criteria(cv::TermCriteria::EPS | cv::TermCriteria::MAX_ITER, 50, 0.1);
-    int attempts = (k <= 8) ? 5 : 7;
-
-    if (k > 0) {
-        cv::kmeans(samples_bgr_cpu_fallback, k, labels_cpu_fallback, criteria, attempts, cv::KMEANS_PP_CENTERS, centers_bgr_cpu_fallback);
+// Optimization 3: Use more efficient color compression function
+std::string compress_hex_color_optimized(unsigned char r, unsigned char g, unsigned char b) noexcept {
+    // Pre-allocate string capacity
+    std::string result;
+    result.reserve(7); // "#RRGGBB"
+    
+    result += '#';
+    
+    // Check if it can be compressed to #RGB format
+    if ((r & 0x0F) == (r >> 4) && (g & 0x0F) == (g >> 4) && (b & 0x0F) == (b >> 4)) {
+        result += "0123456789abcdef"[r >> 4];
+        result += "0123456789abcdef"[g >> 4];
+        result += "0123456789abcdef"[b >> 4];
     } else {
-         std::cerr << "Error: k=0 for OpenCV kmeans." << std::endl; return {cv::Mat(), {}};
+        // Use lookup table instead of formatted output
+        static const char hex_chars[] = "0123456789abcdef";
+        result += hex_chars[r >> 4];
+        result += hex_chars[r & 0x0F];
+        result += hex_chars[g >> 4];
+        result += hex_chars[g & 0x0F];
+        result += hex_chars[b >> 4];
+        result += hex_chars[b & 0x0F];
     }
-
-    if (centers_bgr_cpu_fallback.rows == 0) {
-        std::cerr << "Warning: OpenCV k-means returned 0 centers. Using average image color." << std::endl;
-        if (input_img_bgr.total() > 0 && !input_img_bgr.empty()) {
-            cv::Scalar avg_color_scalar_bgr = cv::mean(input_img_bgr);
-            cv::Mat single_color_img(input_img_bgr.size(), input_img_bgr.type());
-            single_color_img.setTo(cv::Vec3b(static_cast<unsigned char>(avg_color_scalar_bgr[0]),
-                                             static_cast<unsigned char>(avg_color_scalar_bgr[1]),
-                                             static_cast<unsigned char>(avg_color_scalar_bgr[2]))
-                                  );
-            std::vector<Color> single_palette_rgb = {{
-                static_cast<unsigned char>(avg_color_scalar_bgr[2]),
-                static_cast<unsigned char>(avg_color_scalar_bgr[1]),
-                static_cast<unsigned char>(avg_color_scalar_bgr[0])
-            }};
-            num_colors_target = 1;
-            return {single_color_img, single_palette_rgb};
-        }
-        return {cv::Mat(), {}};
-    }
-
-    num_colors_target = centers_bgr_cpu_fallback.rows;
-
-    cv::Mat quantized_image_bgr_cpu_fallback(input_img_bgr.size(), input_img_bgr.type());
-    std::vector<Color> palette_vector_rgb_fallback;
-    palette_vector_rgb_fallback.reserve(centers_bgr_cpu_fallback.rows);
-
-    for (int i = 0; i < centers_bgr_cpu_fallback.rows; ++i) {
-        palette_vector_rgb_fallback.push_back({
-            static_cast<unsigned char>(std::max(0.0f, std::min(255.0f, centers_bgr_cpu_fallback.at<float>(i, 2)))),
-            static_cast<unsigned char>(std::max(0.0f, std::min(255.0f, centers_bgr_cpu_fallback.at<float>(i, 1)))),
-            static_cast<unsigned char>(std::max(0.0f, std::min(255.0f, centers_bgr_cpu_fallback.at<float>(i, 0))))
-        });
-    }
-
-    if (labels_cpu_fallback.empty() || labels_cpu_fallback.rows != samples_bgr_cpu_fallback.rows ) {
-        std::cerr << "Error: OpenCV kmeans failed to produce valid labels. Resulting image might be incorrect." << std::endl;
-        if (!palette_vector_rgb_fallback.empty()) {
-             quantized_image_bgr_cpu_fallback.setTo(cv::Vec3b(
-                 palette_vector_rgb_fallback[0].b,
-                 palette_vector_rgb_fallback[0].g,
-                 palette_vector_rgb_fallback[0].r
-             ));
-        } else {
-            quantized_image_bgr_cpu_fallback.setTo(cv::Vec3b(0,0,0));
-        }
-    } else {
-        int* plabels = labels_cpu_fallback.ptr<int>(0);
-        for (int r_idx = 0; r_idx < quantized_image_bgr_cpu_fallback.rows; ++r_idx) {
-            for (int c_idx = 0; c_idx < quantized_image_bgr_cpu_fallback.cols; ++c_idx) {
-                int sample_idx = r_idx * quantized_image_bgr_cpu_fallback.cols + c_idx;
-                if (sample_idx < labels_cpu_fallback.rows && plabels) {
-                    int cluster_idx = plabels[sample_idx];
-                    if (cluster_idx >=0 && cluster_idx < centers_bgr_cpu_fallback.rows) {
-                        cv::Vec3b& pixel = quantized_image_bgr_cpu_fallback.at<cv::Vec3b>(r_idx, c_idx);
-                        pixel[0] = static_cast<unsigned char>(std::max(0.0f, std::min(255.0f, centers_bgr_cpu_fallback.at<float>(cluster_idx, 0))));
-                        pixel[1] = static_cast<unsigned char>(std::max(0.0f, std::min(255.0f, centers_bgr_cpu_fallback.at<float>(cluster_idx, 1))));
-                        pixel[2] = static_cast<unsigned char>(std::max(0.0f, std::min(255.0f, centers_bgr_cpu_fallback.at<float>(cluster_idx, 2))));
-                    } else {
-                         std::cerr << "Warning: OpenCV Kmeans returned invalid cluster_idx " << cluster_idx << " for pixel (" << r_idx << "," << c_idx << ")" << std::endl;
-                         if (!palette_vector_rgb_fallback.empty()) {
-                             cv::Vec3b& pixel = quantized_image_bgr_cpu_fallback.at<cv::Vec3b>(r_idx, c_idx);
-                             pixel[0] = palette_vector_rgb_fallback[0].b;
-                             pixel[1] = palette_vector_rgb_fallback[0].g;
-                             pixel[2] = palette_vector_rgb_fallback[0].r;
-                         } else {
-                             quantized_image_bgr_cpu_fallback.at<cv::Vec3b>(r_idx, c_idx) = cv::Vec3b(0,0,0);
-                         }
-                    }
-                } else {
-                    std::cerr << "Warning: sample_idx out of bounds for labels_cpu_fallback. Pixel (" << r_idx << "," << c_idx << ")" << std::endl;
-                    quantized_image_bgr_cpu_fallback.at<cv::Vec3b>(r_idx, c_idx) = cv::Vec3b(0,0,0);
-                }
-            }
-        }
-    }
-    return {quantized_image_bgr_cpu_fallback, palette_vector_rgb_fallback};
+    
+    return result;
 }
 
-// Main conversion function
-std::string bitmapToSvg_with_internal_quantization(
-    const unsigned char* raw_bitmap_data_rgb_ptr,
-    int width,
-    int height,
-    int num_colors_hint,
+// Optimization 4: Add intelligent K value selection
+int calculate_optimal_k(long pixel_count, int user_hint) noexcept {
+    if (user_hint > 0) {
+        return std::clamp(user_hint, MIN_CLUSTER_SIZE, MAX_CLUSTER_SIZE);
+    }
+    
+    // Use more refined K value selection strategy
+    if (pixel_count < 1024) return 4;
+    if (pixel_count < 4096) return 6;
+    if (pixel_count < 16384) return 8;
+    if (pixel_count < 65536) return 10;
+    if (pixel_count < 262144) return 12;
+    return 16;
+}
+
+// Optimization 5: Use RAII and smart pointers for resource management
+class FaissGpuManager {
+#ifdef WITH_FAISS_GPU
+private:
+    std::unique_ptr<faiss::gpu::StandardGpuResources> resources_;
+    
+public:
+    FaissGpuManager() {
+        try {
+            resources_ = std::make_unique<faiss::gpu::StandardGpuResources>();
+        } catch (...) {
+            resources_.reset();
+        }
+    }
+    
+    bool is_available() const noexcept { return resources_ != nullptr; }
+    faiss::gpu::StandardGpuResources* get() const noexcept { return resources_.get(); }
+#else
+public:
+    bool is_available() const noexcept { return false; }
+    void* get() const noexcept { return nullptr; }
+#endif
+};
+
+// Optimization 11: Pre-computation and caching
+class SvgGenerator {
+private:
+    cv::Point2f image_center_;
+    double max_dist_from_center_;
+    std::ostringstream svg_stream_;
+    size_t estimated_size_;
+    
+public:
+    SvgGenerator(int width, int height) 
+        : image_center_(width / 2.0f, height / 2.0f)
+        , max_dist_from_center_(cv::norm(cv::Point2f(0, 0) - image_center_))
+        , estimated_size_(0) {
+        svg_stream_.str().reserve(MAX_SVG_SIZE_BYTES);
+    }
+    
+    double calculate_importance(const std::vector<cv::Point>& contour, double area) const noexcept {
+        cv::Moments M = cv::moments(contour);
+        cv::Point2f centroid(0.0f, 0.0f);
+        
+        if (M.m00 > 1e-5) {
+            centroid.x = static_cast<float>(M.m10 / M.m00);
+            centroid.y = static_cast<float>(M.m01 / M.m00);
+        }
+        
+        const double dist_from_center = cv::norm(centroid - image_center_);
+        const double normalized_dist = (max_dist_from_center_ > 1e-5) ? 
+            (dist_from_center / max_dist_from_center_) : 0.0;
+        
+        return area * (1.0 - normalized_dist * 0.5) * (100.0 / (contour.size() + 10.0));
+    }
+    
+    bool can_add_feature() const noexcept {
+        return estimated_size_ < (MAX_SVG_SIZE_BYTES - SVG_SIZE_SAFETY_MARGIN);
+    }
+    
+    void add_polygon(const std::vector<cv::Point>& points, const std::string& color) {
+        if (!can_add_feature()) return;
+        
+        svg_stream_ << "<polygon points=\"";
+        for (size_t i = 0; i < points.size(); ++i) {
+            svg_stream_ << points[i].x << "," << points[i].y;
+            if (i < points.size() - 1) svg_stream_ << " ";
+        }
+        svg_stream_ << "\" fill=\"" << color << "\"/>";
+        
+        estimated_size_ = svg_stream_.tellp();
+    }
+    
+    std::string get_svg() const { return svg_stream_.str(); }
+};
+
+// Error handling function for empty clustering centers
+std::pair<cv::Mat, std::vector<Color>> handle_empty_centers(const cv::Mat& input_img_bgr) {
+    std::cerr << "Warning: K-means clustering produced empty centers, using fallback method\n";
+    
+    // Create a simple palette using the most common colors in the image
+    std::vector<Color> fallback_palette;
+    cv::Mat quantized_img = input_img_bgr.clone();
+    
+    // Calculate the average color of the image as a single color
+    cv::Scalar mean_color = cv::mean(input_img_bgr);
+    Color avg_color;
+    avg_color.b = static_cast<unsigned char>(mean_color[0]);
+    avg_color.g = static_cast<unsigned char>(mean_color[1]);
+    avg_color.r = static_cast<unsigned char>(mean_color[2]);
+    
+    fallback_palette.push_back(avg_color);
+    
+    // Set the entire image to the average color
+    quantized_img.setTo(cv::Scalar(avg_color.b, avg_color.g, avg_color.r));
+    
+    return {quantized_img, fallback_palette};
+}
+
+// Generate OpenCV quantization result
+std::pair<cv::Mat, std::vector<Color>> generate_quantized_result_opencv(
+    const cv::Mat& input_img_bgr, 
+    const cv::Mat& labels, 
+    const cv::Mat& centers
+) {
+    // Create color palette
+    std::vector<Color> palette_rgb;
+    palette_rgb.reserve(centers.rows);
+    
+    for (int i = 0; i < centers.rows; ++i) {
+        Color color;
+        color.b = static_cast<unsigned char>(centers.at<float>(i, 0));
+        color.g = static_cast<unsigned char>(centers.at<float>(i, 1));
+        color.r = static_cast<unsigned char>(centers.at<float>(i, 2));
+        palette_rgb.push_back(color);
+    }
+    
+    // Create quantized image
+    cv::Mat quantized_img(input_img_bgr.size(), input_img_bgr.type());
+    
+    int pixel_idx = 0;
+    for (int i = 0; i < input_img_bgr.rows; ++i) {
+        for (int j = 0; j < input_img_bgr.cols; ++j) {
+            int cluster_idx = labels.at<int>(pixel_idx);
+            if (cluster_idx >= 0 && cluster_idx < centers.rows) {
+                cv::Vec3f center = centers.at<cv::Vec3f>(cluster_idx, 0);
+                quantized_img.at<cv::Vec3b>(i, j) = cv::Vec3b(
+                    static_cast<unsigned char>(center[0]),
+                    static_cast<unsigned char>(center[1]),
+                    static_cast<unsigned char>(center[2])
+                );
+            } else {
+                // Handle invalid cluster index
+                quantized_img.at<cv::Vec3b>(i, j) = input_img_bgr.at<cv::Vec3b>(i, j);
+            }
+            pixel_idx++;
+        }
+    }
+    
+    return {quantized_img, palette_rgb};
+}
+
+#ifdef WITH_FAISS_GPU
+// Generate FAISS quantization result
+std::pair<cv::Mat, std::vector<Color>> generate_quantized_result_faiss(
+    const cv::Mat& input_img_bgr,
+    const faiss::Clustering& clustering,
+    faiss::gpu::GpuIndexFlatL2& gpu_index,
+    const float* data_ptr,
+    long n_pixels
+) {
+    // Create color palette
+    std::vector<Color> palette_rgb;
+    const int k = clustering.k;
+    palette_rgb.reserve(k);
+    
+    for (int i = 0; i < k; ++i) {
+        Color color;
+        color.b = static_cast<unsigned char>(std::clamp(clustering.centroids[i * 3 + 0], 0.0f, 255.0f));
+        color.g = static_cast<unsigned char>(std::clamp(clustering.centroids[i * 3 + 1], 0.0f, 255.0f));
+        color.r = static_cast<unsigned char>(std::clamp(clustering.centroids[i * 3 + 2], 0.0f, 255.0f));
+        palette_rgb.push_back(color);
+    }
+    
+    // Find the nearest cluster center for each pixel
+    std::vector<float> distances(n_pixels);
+    std::vector<faiss::idx_t> labels(n_pixels);
+    
+    gpu_index.search(n_pixels, data_ptr, 1, distances.data(), labels.data());
+    
+    // Create quantized image
+    cv::Mat quantized_img(input_img_bgr.size(), input_img_bgr.type());
+    
+    int pixel_idx = 0;
+    for (int i = 0; i < input_img_bgr.rows; ++i) {
+        for (int j = 0; j < input_img_bgr.cols; ++j) {
+            int cluster_idx = static_cast<int>(labels[pixel_idx]);
+            if (cluster_idx >= 0 && cluster_idx < k) {
+                const Color& color = palette_rgb[cluster_idx];
+                quantized_img.at<cv::Vec3b>(i, j) = cv::Vec3b(color.b, color.g, color.r);
+            } else {
+                // Handle invalid cluster index
+                quantized_img.at<cv::Vec3b>(i, j) = input_img_bgr.at<cv::Vec3b>(i, j);
+            }
+            pixel_idx++;
+        }
+    }
+    
+    return {quantized_img, palette_rgb};
+}
+
+// Optimization 8: Separate FAISS and OpenCV implementations
+std::pair<cv::Mat, std::vector<Color>> perform_faiss_quantization(
+    const cv::Mat& input_img_bgr, 
+    int k, 
+    faiss::gpu::StandardGpuResources* resources
+) {
+    cv::Mat input_float;
+    input_img_bgr.convertTo(input_float, CV_32FC3);
+    
+    const long n_pixels = input_float.rows * input_float.cols;
+    const int dim = 3;
+    
+    if (n_pixels < k) {
+        throw std::runtime_error("Not enough pixels for clustering");
+    }
+    
+    // Ensure data continuity
+    if (!input_float.isContinuous()) {
+        input_float = input_float.clone();
+    }
+    
+    cv::Mat samples = input_float.reshape(1, n_pixels);
+    const float* data_ptr = samples.ptr<float>();
+    
+    // Configure clustering parameters
+    faiss::ClusteringParameters cp;
+    cp.niter = std::min(50, std::max(10, static_cast<int>(n_pixels / k / 100)));
+    cp.nredo = 3;
+    cp.verbose = false;
+    cp.spherical = false;
+    cp.update_index = true;
+    cp.min_points_per_centroid = std::max(1, static_cast<int>(n_pixels / (k * 50)));
+    cp.max_points_per_centroid = static_cast<int>(n_pixels / k * 5);
+    
+    faiss::Clustering clustering(dim, k, cp);
+    faiss::gpu::GpuIndexFlatL2 gpu_index(resources, dim);
+    
+    clustering.train(n_pixels, data_ptr, gpu_index);
+    
+    if (clustering.centroids.empty()) {
+        throw std::runtime_error("FAISS clustering produced no centroids");
+    }
+    
+    // Generate quantized image and palette
+    return generate_quantized_result_faiss(input_img_bgr, clustering, gpu_index, data_ptr, n_pixels);
+}
+#endif
+
+// Optimization 9: Improved OpenCV quantization implementation
+std::pair<cv::Mat, std::vector<Color>> perform_opencv_quantization(const cv::Mat& input_img_bgr, int k) {
+    cv::Mat samples;
+    input_img_bgr.convertTo(samples, CV_32F);
+    samples = samples.reshape(1, input_img_bgr.total());
+    
+    if (samples.rows < k) {
+        k = samples.rows;
+        if (k == 0) return {cv::Mat(), {}};
+    }
+    
+    cv::Mat labels, centers;
+    cv::TermCriteria criteria(cv::TermCriteria::EPS | cv::TermCriteria::MAX_ITER, 50, 0.1);
+    const int attempts = (k <= 8) ? 5 : 3; // Reduce attempts to improve performance
+    
+    double compactness = cv::kmeans(samples, k, labels, criteria, attempts, cv::KMEANS_PP_CENTERS, centers);
+    
+    if (centers.empty()) {
+        return handle_empty_centers(input_img_bgr);
+    }
+    
+    return generate_quantized_result_opencv(input_img_bgr, labels, centers);
+}
+
+// Optimization 6: Improved color quantization function
+std::pair<cv::Mat, std::vector<Color>> perform_color_quantization_optimized(
+    const cv::Mat& input_img_bgr,
+    int& num_colors_target
+) {
+    // Input validation
+    if (input_img_bgr.empty() || input_img_bgr.channels() != 3) {
+        std::cerr << "Error: Invalid input image for quantization\n";
+        return {cv::Mat(), {}};
+    }
+
+    const long pixel_count = static_cast<long>(input_img_bgr.rows) * input_img_bgr.cols;
+    const int k = calculate_optimal_k(pixel_count, num_colors_target);
+    num_colors_target = k;
+
+    // Optimization 7: Use static GPU manager to avoid repeated initialization
+    static FaissGpuManager gpu_manager;
+    
+#ifdef WITH_FAISS_GPU
+    if (gpu_manager.is_available()) {
+        try {
+            return perform_faiss_quantization(input_img_bgr, k, gpu_manager.get());
+        } catch (const std::exception& ex) {
+            std::cerr << "FAISS GPU quantization failed: " << ex.what() 
+                      << "\nFalling back to OpenCV K-means\n";
+        }
+    }
+#endif
+
+    return perform_opencv_quantization(input_img_bgr, k);
+}
+
+// Generate SVG from quantized image
+std::string generate_svg_from_quantized_image(
+    const cv::Mat& quantized_img_bgr,
+    const std::vector<Color>& palette_rgb,
+    const cv::Mat& original_img_bgr,
     double simplification_epsilon_factor,
     double min_contour_area,
     int max_features_to_render,
     int original_svg_width,
     int original_svg_height
 ) {
-    cv::Mat raw_img_rgb_data_wrapper(height, width, CV_8UC3, const_cast<unsigned char*>(raw_bitmap_data_rgb_ptr));
-    cv::Mat raw_img_bgr;
-    cv::cvtColor(raw_img_rgb_data_wrapper, raw_img_bgr, cv::COLOR_RGB2BGR);
-
-    if (raw_img_bgr.empty()) {
-        std::cerr << "Error: Input image data is empty or invalid after BGR conversion." << std::endl;
-        return "<svg><text fill='red'>Error: Invalid input image.</text></svg>";
-    }
-
-    int actual_num_colors = num_colors_hint;
-    auto quantization_result = perform_color_quantization_cpp(raw_img_bgr, actual_num_colors);
-
-    cv::Mat quantized_img_bgr = quantization_result.first;
-    std::vector<Color> palette_rgb = quantization_result.second;
-
-    if (quantized_img_bgr.empty() || palette_rgb.empty()) {
-        std::cerr << "Error: Color quantization failed." << std::endl;
-        return "<svg><text fill='red'>Error: Color quantization failed.</text></svg>";
-    }
-
-    std::vector<SvgFeature> all_features;
-    cv::Point2f image_center(static_cast<float>(quantized_img_bgr.cols) / 2.0f, static_cast<float>(quantized_img_bgr.rows) / 2.0f);
-    double max_dist_from_center = cv::norm(cv::Point2f(0,0) - image_center);
-
-    for (const auto& pal_color_rgb : palette_rgb) {
-        cv::Vec3b target_cv_color_bgr(pal_color_rgb.b, pal_color_rgb.g, pal_color_rgb.r);
-        cv::Mat mask;
-        cv::inRange(quantized_img_bgr, target_cv_color_bgr, target_cv_color_bgr, mask);
-
-        if (cv::countNonZero(mask) == 0) continue;
-
-        std::vector<std::vector<cv::Point>> contours;
-        cv::findContours(mask, contours, cv::RETR_EXTERNAL, cv::CHAIN_APPROX_SIMPLE);
-
-        std::string hex_color_str = compress_hex_color_cpp(pal_color_rgb.r, pal_color_rgb.g, pal_color_rgb.b);
-
-        for (const auto& contour : contours) {
-            double area = cv::contourArea(contour);
-            if (area < min_contour_area) continue;
-
-            std::vector<cv::Point> simplified_contour;
-            double epsilon = std::max(0.5, simplification_epsilon_factor * cv::arcLength(contour, true));
-            cv::approxPolyDP(contour, simplified_contour, epsilon, true);
-
-            if (simplified_contour.size() < 3) continue;
-
-            cv::Moments M = cv::moments(simplified_contour);
-            cv::Point2f contour_center(0.0f, 0.0f);
-            if (M.m00 > 1e-5) {
-                contour_center.x = static_cast<float>(M.m10 / M.m00);
-                contour_center.y = static_cast<float>(M.m01 / M.m00);
-            }
-            double dist_from_img_center = cv::norm(contour_center - image_center);
-            double normalized_dist = (max_dist_from_center > 1e-5) ? (dist_from_img_center / max_dist_from_center) : 0.0;
-            double importance = area * (1.0 - normalized_dist) * (1.0 / (simplified_contour.size() + 1.0));
-            all_features.push_back({simplified_contour, hex_color_str, area, importance});
-        }
-    }
-
-    std::sort(all_features.begin(), all_features.end());
-
-    std::stringstream svg_ss;
-    int viewbox_w = raw_img_bgr.cols;
-    int viewbox_h = raw_img_bgr.rows;
-    int svg_attr_width = (original_svg_width > 0) ? original_svg_width : viewbox_w;
-    int svg_attr_height = (original_svg_height > 0) ? original_svg_height : viewbox_h;
-
-    svg_ss << "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"" << svg_attr_width
-           << "\" height=\"" << svg_attr_height
-           << "\" viewBox=\"0 0 " << viewbox_w << " " << viewbox_h << "\">";
-
-    cv::Scalar avg_color_bgr_scalar = cv::mean(raw_img_bgr);
-    std::string bg_hex_color = compress_hex_color_cpp(
-        static_cast<unsigned char>(avg_color_bgr_scalar[2]),
-        static_cast<unsigned char>(avg_color_bgr_scalar[1]),
-        static_cast<unsigned char>(avg_color_bgr_scalar[0])
-    );
-    svg_ss << "<rect width=\"" << viewbox_w
-           << "\" height=\"" << viewbox_h
-           << "\" fill=\"" << bg_hex_color << "\"/>";
-    
-    size_t features_rendered = 0;
-    for (const auto& feature : all_features) {
-        if (max_features_to_render > 0 && features_rendered >= static_cast<size_t>(max_features_to_render)) break;
-        if (feature.points.empty()) continue;
+    try {
+        // Set SVG dimensions
+        int svg_width = (original_svg_width > 0) ? original_svg_width : quantized_img_bgr.cols;
+        int svg_height = (original_svg_height > 0) ? original_svg_height : quantized_img_bgr.rows;
         
-        if (static_cast<long>(svg_ss.tellp()) > (MAX_SVG_SIZE_BYTES - SVG_SIZE_SAFETY_MARGIN) ) {
-            std::cerr << "Warning: Approaching max SVG size (" << MAX_SVG_SIZE_BYTES 
-                      << " bytes), truncating output. Current estimated size: " << svg_ss.tellp() << std::endl;
-            break;
+        // Create SVG generator
+        SvgGenerator svg_gen(svg_width, svg_height);
+        
+        // SVG header
+        std::ostringstream svg_stream;
+        svg_stream << "<svg width=\"" << svg_width << "\" height=\"" << svg_height 
+                   << "\" xmlns=\"http://www.w3.org/2000/svg\">";
+        
+        // Create contours for each color
+        std::vector<ContourFeature> all_features;
+        
+        for (const auto& color : palette_rgb) {
+            // Create mask for this color
+            cv::Mat mask;
+            cv::inRange(quantized_img_bgr, 
+                       cv::Scalar(color.b - 1, color.g - 1, color.r - 1),
+                       cv::Scalar(color.b + 1, color.g + 1, color.r + 1), 
+                       mask);
+            
+            if (cv::countNonZero(mask) == 0) continue;
+            
+            // Find contours
+            std::vector<std::vector<cv::Point>> contours;
+            cv::findContours(mask, contours, cv::RETR_EXTERNAL, cv::CHAIN_APPROX_SIMPLE);
+            
+            // Process each contour
+            for (auto& contour : contours) {
+                double area = cv::contourArea(contour);
+                if (area < min_contour_area) continue;
+                
+                // Simplify contour
+                std::vector<cv::Point> simplified_contour;
+                double epsilon = simplification_epsilon_factor * cv::arcLength(contour, true);
+                cv::approxPolyDP(contour, simplified_contour, std::max(epsilon, MIN_EPSILON), true);
+                
+                if (simplified_contour.size() < 3) continue;
+                
+                // Calculate importance
+                double importance = svg_gen.calculate_importance(simplified_contour, area);
+                
+                // Create color string
+                std::string color_hex = compress_hex_color_optimized(color.r, color.g, color.b);
+                
+                // Add feature
+                all_features.emplace_back(std::move(simplified_contour), std::move(color_hex), area, importance);
+            }
         }
-        svg_ss << "<polygon points=\"";
-        for (size_t i = 0; i < feature.points.size(); ++i) {
-            svg_ss << feature.points[i].x << "," << feature.points[i].y;
-            if (i < feature.points.size() - 1) svg_ss << " ";
+        
+        // Sort by importance
+        std::sort(all_features.begin(), all_features.end());
+        
+        // Limit feature count
+        if (all_features.size() > static_cast<size_t>(max_features_to_render)) {
+            all_features.resize(max_features_to_render);
         }
-        svg_ss << "\" fill=\"" << feature.color_hex << "\"/>";
-        features_rendered++;
+        
+        // Generate SVG polygons
+        for (const auto& feature : all_features) {
+            if (!svg_gen.can_add_feature()) break;
+            svg_gen.add_polygon(feature.points, feature.color_hex);
+        }
+        
+        // Complete SVG
+        svg_stream << svg_gen.get_svg() << "</svg>";
+        
+        return svg_stream.str();
+        
+    } catch (const std::exception& ex) {
+        std::cerr << "Error generating SVG: " << ex.what() << std::endl;
+        return "<svg><text fill='red'>Error: SVG generation failed.</text></svg>";
     }
+}
 
-    svg_ss << "</svg>";
-    return svg_ss.str();
+// Optimization 12: Main function refactoring
+std::string bitmapToSvg_with_internal_quantization_optimized(
+    const unsigned char* raw_bitmap_data_rgb_ptr,
+    int width,
+    int height,
+    int num_colors_hint,
+    double simplification_epsilon_factor = 0.02,
+    double min_contour_area = 10.0,
+    int max_features_to_render = 1000,
+    int original_svg_width = 0,
+    int original_svg_height = 0
+) {
+    try {
+        // Input validation
+        if (!raw_bitmap_data_rgb_ptr || width <= 0 || height <= 0) {
+            return "<svg><text fill='red'>Error: Invalid input parameters.</text></svg>";
+        }
+        
+        // Image conversion
+        cv::Mat raw_img_rgb(height, width, CV_8UC3, const_cast<unsigned char*>(raw_bitmap_data_rgb_ptr));
+        cv::Mat raw_img_bgr;
+        cv::cvtColor(raw_img_rgb, raw_img_bgr, cv::COLOR_RGB2BGR);
+        
+        // Color quantization
+        int actual_num_colors = num_colors_hint;
+        auto [quantized_img_bgr, palette_rgb] = perform_color_quantization_optimized(raw_img_bgr, actual_num_colors);
+        
+        if (quantized_img_bgr.empty() || palette_rgb.empty()) {
+            return "<svg><text fill='red'>Error: Color quantization failed.</text></svg>";
+        }
+        
+        // Generate SVG
+        return generate_svg_from_quantized_image(
+            quantized_img_bgr, palette_rgb, raw_img_bgr,
+            simplification_epsilon_factor, min_contour_area, max_features_to_render,
+            original_svg_width, original_svg_height
+        );
+        
+    } catch (const std::exception& ex) {
+        std::cerr << "Error in bitmap to SVG conversion: " << ex.what() << std::endl;
+        return "<svg><text fill='red'>Error: Conversion failed.</text></svg>";
+    }
 }
