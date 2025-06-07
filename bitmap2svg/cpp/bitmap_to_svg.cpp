@@ -462,11 +462,11 @@ std::string bitmapToSvg_with_internal_quantization(
     int width,
     int height,
     int num_colors_hint,
-    double simplification_epsilon_factor = 0.009,
-    double min_contour_area = 10.0,
-    int max_features_to_render = 0,
-    int original_svg_width = 0,
-    int original_svg_height = 0
+    double simplification_epsilon_factor,
+    double min_contour_area,
+    int max_features_to_render,
+    int original_svg_width,
+    int original_svg_height
 ) {
     try {
         // Input validation
