@@ -13,6 +13,11 @@ struct Color {
     unsigned char r; // Red channel
     unsigned char g; // Green channel
     unsigned char b; // Blue channel
+
+    Color() : r(0), g(0), b(0) {}
+    Color(unsigned char red, unsigned char green, unsigned char blue) 
+        : r(red), g(green), b(blue) {}
+
 };
 
 // Structure to hold extracted SVG feature data before sorting and rendering.

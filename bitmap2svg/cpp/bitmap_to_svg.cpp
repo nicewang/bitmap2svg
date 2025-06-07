@@ -17,10 +17,10 @@
 #endif
 
 #ifdef WITH_FAISS_GPU
-#include "faiss/gpu/GpuIndexFlat.h"
-#include "faiss/gpu/StandardGpuResources.h"
-#include "faiss/Clustering.h"
-#include "faiss/Index.h"
+#include <faiss/gpu/GpuIndexFlat.h>
+#include <faiss/gpu/StandardGpuResources.h>
+#include <faiss/Clustering.h>
+#include <faiss/Index.h>
 #endif
 
 // Optimization 1: Use constexpr and more reasonable constants
@@ -36,15 +36,6 @@ enum class ConversionResult {
     INVALID_INPUT,
     QUANTIZATION_FAILED,
     SIZE_LIMIT_EXCEEDED
-};
-
-// Basic data structures
-struct Color {
-    unsigned char r, g, b;
-    
-    Color() : r(0), g(0), b(0) {}
-    Color(unsigned char red, unsigned char green, unsigned char blue) 
-        : r(red), g(green), b(blue) {}
 };
 
 // Optimization 10: Use more efficient contour importance calculation
@@ -271,7 +262,7 @@ std::pair<cv::Mat, std::vector<Color>> generate_quantized_result_faiss(
     
     // Find the nearest cluster center for each pixel
     std::vector<float> distances(n_pixels);
-    std::vector<faiss::idx_t> labels(n_pixels);
+    std::vector<faiss::Index::idx_t> labels(n_pixels);
     
     gpu_index.search(n_pixels, data_ptr, 1, distances.data(), labels.data());
     

@@ -10,7 +10,7 @@ build-backend = "scikit_build_core.build"
 
 [project]
 name = "bitmap2svg"
-version = "0.2.3.2"
+version = "0.2.3.3"
 description = "A library to convert bitmaps to SVG, using C++, OpenCV, with potential CUDA/FAISS GPU acceleration."
 readme = "README.md"
 requires-python = ">=3.8"
@@ -43,7 +43,7 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/Opensource-Nice-Arishi/kaggle_drawing_with_LLMs/tree/bitmap2svg-cu-v0.2.3.2"
+Homepage = "https://github.com/Opensource-Nice-Arishi/kaggle_drawing_with_LLMs/tree/bitmap2svg-cu-v0.2.3.3"
 
 [tool.scikit-build]
 cmake.source-dir = "."
