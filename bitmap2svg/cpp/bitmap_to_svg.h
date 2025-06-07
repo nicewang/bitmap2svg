@@ -5,6 +5,14 @@
 #include <vector>
 #include <opencv2/core/types.hpp> // For cv::Point
 
+// Optimization 2: Add error code enumeration
+enum class ConversionResult {
+    SUCCESS,
+    INVALID_INPUT,
+    QUANTIZATION_FAILED,
+    SIZE_LIMIT_EXCEEDED
+};
+
 // Define a simple Color structure for palette colors (R, G, B).
 // This structure is used to represent colors in the generated palette.
 // Note: Internally, OpenCV might use BGR, but this struct and the
@@ -18,6 +26,24 @@ struct Color {
     Color(unsigned char red, unsigned char green, unsigned char blue) 
         : r(red), g(green), b(blue) {}
 
+};
+
+// Optimization 10: Use more efficient contour importance calculation
+struct ContourFeature {
+    std::vector<cv::Point> points;
+    std::string color_hex;
+    double area;
+    double importance;
+
+    ContourFeature() : area(0.0), importance(0.0) {}
+    
+    // Add move constructor
+    ContourFeature(std::vector<cv::Point>&& pts, std::string&& color, double a, double imp)
+        : points(std::move(pts)), color_hex(std::move(color)), area(a), importance(imp) {}
+    
+    bool operator<(const ContourFeature& other) const noexcept {
+        return importance > other.importance; // Descending order
+    }
 };
 
 // Structure to hold extracted SVG feature data before sorting and rendering.
