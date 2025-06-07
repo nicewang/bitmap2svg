@@ -457,14 +457,14 @@ std::string generate_svg_from_quantized_image(
 }
 
 // Optimization 12: Main function refactoring
-std::string bitmapToSvg_with_internal_quantization_optimized(
+std::string bitmapToSvg_with_internal_quantization(
     const unsigned char* raw_bitmap_data_rgb_ptr,
     int width,
     int height,
     int num_colors_hint,
-    double simplification_epsilon_factor = 0.02,
+    double simplification_epsilon_factor = 0.009,
     double min_contour_area = 10.0,
-    int max_features_to_render = 1000,
+    int max_features_to_render = 0,
     int original_svg_width = 0,
     int original_svg_height = 0
 ) {

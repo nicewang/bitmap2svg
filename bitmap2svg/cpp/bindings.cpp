@@ -75,7 +75,7 @@ PYBIND11_MODULE(bitmap2svg_core, m) {
             );
         }
 
-        int call_original_svg_width = -1; // Default for C++ function's sentinel value
+        int call_original_svg_width = 0;
         if (!original_width_py.is_none()) {
             try {
                 call_original_svg_width = original_width_py.cast<int>();
@@ -91,10 +91,8 @@ PYBIND11_MODULE(bitmap2svg_core, m) {
                 throw py::value_error("Invalid value for 'original_width_py': must be an integer or None.");
             }
         }
-        // Now, call_original_svg_width is either -1 (if original_width_py was None)
-        // or a positive integer. Both are correctly interpreted by the C++ function.
 
-        int call_original_svg_height = -1; // Default for C++ function's sentinel value
+        int call_original_svg_height = 0;
         if (!original_height_py.is_none()) {
              try {
                 call_original_svg_height = original_height_py.cast<int>();
@@ -108,9 +106,7 @@ PYBIND11_MODULE(bitmap2svg_core, m) {
                 throw py::value_error("Invalid value for 'original_height_py': must be an integer or None.");
             }
         }
-        // Now, call_original_svg_height is either -1 or a positive integer.
 
-        // Call the core C++ function defined in "bitmap_to_svg.h"
         return bitmapToSvg_with_internal_quantization(
             data_ptr,
             width,
