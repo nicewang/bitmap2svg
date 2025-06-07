@@ -3,7 +3,7 @@ from setuptools import setup
 setup(
     name="bitmap2svg",
     version="0.2.3.3",
-    description="A library to convert bitmaps to SVG, using C++ and OpenCV.",
+    description="A library to convert bitmaps to SVG, using C++, OpenCV, with potential CUDA/FAISS GPU acceleration.",
     long_description=open("README.md").read(),
     long_description_content_type="text/markdown",
     author="Xiaonan (Nice) Wang",

@@ -1,5 +1,5 @@
 # bitmap2svg
-## Version: 0.2.3.2
+## Version: 0.2.3.3
 ### 1. Introduction
 A library to convert bitmaps to SVG, using C++, OpenCV, with potential CUDA/FAISS GPU acceleration.
 
