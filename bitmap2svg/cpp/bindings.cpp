@@ -75,7 +75,7 @@ PYBIND11_MODULE(bitmap2svg_core, m) {
             );
         }
 
-        int call_original_svg_width = -1;
+        int call_original_svg_width = 0;
         if (!original_width_py.is_none()) {
             try {
                 call_original_svg_width = original_width_py.cast<int>();
@@ -92,7 +92,7 @@ PYBIND11_MODULE(bitmap2svg_core, m) {
             }
         }
 
-        int call_original_svg_height = -1;
+        int call_original_svg_height = 0;
         if (!original_height_py.is_none()) {
              try {
                 call_original_svg_height = original_height_py.cast<int>();

@@ -7,9 +7,9 @@ def bitmap_to_svg(
     num_colors: int | None = None, # User specifies desired colors, None for adaptive.
     resize: bool = True,           # Whether to resize the image before processing.
     target_size: tuple[int, int] = (384, 384), # Target (width, height) for resizing.
-    simplification_epsilon_factor: float = 0.009, # Controls polygon simplification.
+    simplification_epsilon_factor: float = 0.02, # Controls polygon simplification.
     min_contour_area: float = 10.0,               # Minimum area for a polygon to be included.
-    max_features_to_render: int = 0               # Max number of polygons (0 for unlimited).
+    max_features_to_render: int = 1000               # Max number of polygons.
 ) -> str:
     """
     Converts a PIL Image object to an SVG string using the C++ backend.
@@ -32,15 +32,13 @@ def bitmap_to_svg(
         simplification_epsilon_factor: Controls polygon simplification (Douglas-Peucker).
                                        Higher values (e.g., 0.02) mean more simplification
                                        and fewer points in polygons. Lower values (e.g., 0.001)
-                                       mean less simplification. Default: 0.009.
+                                       mean less simplification. Default: 0.02.
         min_contour_area: The minimum area (in pixels^2 of the processed image)
                           for a detected contour to be included in the SVG.
                           Helps filter out noise or very small details.
                           Default: 10.0.
         max_features_to_render: The maximum number of distinct colored polygons
-                                (features) to render in the SVG. If 0 or negative,
-                                all features passing other filters will be rendered,
-                                subject to internal SVG size limits.
+                                (features) to render in the SVG.
                                 Features are typically sorted by importance, so this
                                 effectively renders the N most "important" features.
                                 Default: 0 (no explicit limit other than SVG size).
