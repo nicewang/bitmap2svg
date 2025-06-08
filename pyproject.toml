@@ -3,8 +3,7 @@ requires = [
     "scikit-build-core>=0.8",
     "cmake>=3.18",
     "ninja",
-    "pybind11[global]>=2.10",
-    "faiss-gpu>=1.7.0"
+    "pybind11[global]>=2.10"
 ]
 build-backend = "scikit_build_core.build"
 
@@ -38,8 +37,7 @@ keywords = ["svg", "bitmap", "vectorization", "gpu", "cuda", "faiss", "opencv", 
 dependencies = [
     "numpy",
     "opencv-python",
-    "Pillow",
-    "faiss-gpu>=1.7.0"
+    "Pillow"
 ]
 
 [project.urls]
