@@ -24,10 +24,10 @@ Apply DMs in **latent space** of ...
 
 **Efficient**:
 
-- text-to-image synthesis <---------------|(2)
+- text-to-image synthesis <-----------|(2)
 - class-conditional image synthesis <-|(1)
 - unconditional image generation <-|(4)
-- image inpainting <---------------------|(3)
+- image inpainting <----------------|(3)
 - super-resolution
 
 # Comparison of Image Synthesis Models
