@@ -41,3 +41,14 @@ plt.imshow(img, cmap='gray')
 plt.axis('off')
 plt.show()
 ```
+### Some Draft
+```
+Color Quantization:
+    Add Blobs
+Contours Detectxtion and Simplification:
+    Add Shapes
+?:
+    Add Details
+Features (Polygons) Importance Sorting and Filtering:
+    Denoising
+```

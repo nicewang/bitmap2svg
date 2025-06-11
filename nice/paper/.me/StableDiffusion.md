@@ -34,11 +34,11 @@ Apply DMs in **latent space** of ...
 		- "**2-Stage** Separate Training" (Reconstruction+Generation): The autoencoder can focus on the reconstruction task without being disturbed by the generation task.
 		- *Very little regularization* of the latent space
 
-- On Diverse Tasks and More Flexible:
+- On Diverse Tasks and More Flexible (also the supplements to **Retain Performance**):
 
 	- For *Densely Conditioned Tasks* (super-resolution, inpainting, semantic synthesis, etc.): Could be applied in a *convolutional fashion* and render large
 
-	- For tasks like class-conditional, text-to-image, layout-to-image, etc.: A *general-purpose conditioning mechanism* based on *cross-attention*, enabling *multi-modal* training
+	- For tasks like class-conditional, text-to-image, layout-to-image, etc.: A *general-purpose conditioning mechanism* based on *cross-attention*, enabling *multi-modal* training  -> (conditioning inputs (text & bounding boxes, etc))
 
 #### 5. What is the approach itself?
 **Latent** DMs with **cross-attention** layers.
