@@ -36,9 +36,25 @@ Apply DMs in **latent space** of ...
 
 - On Diverse Tasks and More Flexible (also the supplements to **Retain Performance**):
 
-	- For *Densely Conditioned Tasks* (super-resolution, inpainting, semantic synthesis, etc.): Could be applied in a *convolutional fashion* and render large
+	- For **Densely Conditioned** Tasks (super-resolution, inpainting, semantic synthesis, etc.): Could be applied in a *convolutional fashion* and render large
 
-	- For tasks like class-conditional, text-to-image, layout-to-image, etc.: A *general-purpose conditioning mechanism* based on *cross-attention*, enabling *multi-modal* training  -> (conditioning inputs (text & bounding boxes, etc))
+	- For **Class-Conditional** Tasks (text-to-image, layout-to-image, etc.): A *general-purpose conditioning mechanism* based on *cross-attention*, enabling *multi-modal* training  -> (conditioning inputs (text & bounding boxes, etc))
+
+	- **Unconditional** Image Generation Tasks
+
+| | Densely Conditioned | Class-Conditional |
+|-----------|-------------------|-------------------|
+| **Definition** | **Pixel-level Correspondence**: The conditional information (input) and the output image have a close pixel-level correspondence in space. | **Global Semantics**: Conditional information provides global semantics or style guidance. |
+| | **Structured Conditions**: The conditional input is usually structured data of the same size (or pixel-level magnification) as the output. | **Abstract Conditions**: Conditions are usually abstract information such as text, labels or layout. |
+| | **Strong Local Constraints**: The generation of each pixel position is strongly constrained by the corresponding conditions | **More Creativity**: Greater freedom of generation under the constraints of conditions. |
+| **Condition Density** | Pixel-level dense constraints | Global sparse constraints |
+| **Spatial Correspondence** | Strong spatial correspondence | Weak spatial correspondence |
+| **Generation Freedom** | Lower (fixed structure) | Higher (more creative) |
+| **Task Difficulty** | Mainly detail reconstruction | Mainly semantic understanding |
+| **Evaluation Method** | Pixel-level metrics dominant | Semantic consistency dominant |
+| **Applications** | **Super-Resolution**: low-resolution image → high-resolution image (pixel-level magnification) | **Text-to-Image** (semantic guidance) |
+|  | **Inpainting**: Image with mask → Complete image corresponded spatial position of input and output) | **Layout-to-Image**: layout box + category label → image (layout guidance) |
+|  | **Semantic Synthesis**: semantic segmentation map → real image (corresponding to each pixel category) |  |
 
 #### 5. What is the approach itself?
 **Latent** DMs with **cross-attention** layers.
@@ -50,13 +66,13 @@ Apply DMs in **latent space** of ...
 
 **Efficient**:
 
-- text-to-image synthesis <-----------|(2)
-- class-conditional image synthesis <-|(1)
-- unconditional image generation <-|(4)
-- image inpainting <----------------|(3)
+- class-conditional image synthesis
+- unconditional image generation
+- image inpainting
 - super-resolution
+- etc.
 
-# Comparison of Image Synthesis Models
+#### Comparison of Image Synthesis Models
 
 | Model Type | Main Features | Pros | Cons | Best For |
 |------------|---------------|------|------|----------|
