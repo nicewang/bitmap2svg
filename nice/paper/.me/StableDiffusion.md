@@ -1,4 +1,4 @@
-## Level-1:
+## Level-1
 
 **Keep in Mind**: Check whether - Did **Indeed Work** on **real-world problems**。
 
@@ -67,9 +67,11 @@ Apply DMs in **latent space** of ...
 **Efficient**:
 
 - class-conditional image synthesis
-- unconditional image generation
-- image inpainting
-- super-resolution
+
+- unconditional image generation (generated directly from *noise*, usually as a sub-step in the image synthesis process)
+- densely conditioned generation:
+	- image inpainting
+	- super-resolution
 - etc.
 
 #### Comparison of Image Synthesis Models
