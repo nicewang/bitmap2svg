@@ -18,6 +18,8 @@ Apply DMs in **latent space** of ...
 
 * DM learn in latent space - Generation
 	* Better *Scaling Properties* compared to those learn from *high-dimensional pixel space*
+		* Q: Why "better scaling properties"?
+		* A: When the image resolution increases from 512×512 to 1024×1024 (for example), the computational cost of LDMs increases relatively modestly and remains feasible (since generator learn in the **relatively low-dimensional** latent space -> **easier to learn** when resolution increasing).
 
 #### 4. Why is it better than prev.? (Advantages)
 - **More Efficient**: It allows to achieve trade-off(? near-optimal point) between complexity reduction and detail preservation.
