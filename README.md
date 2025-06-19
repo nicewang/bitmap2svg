@@ -43,7 +43,7 @@ pip install git+https://github.com/Opensource-Nice-Arishi/kaggle_drawing_with_LL
 * **🔷<span style="color:blue;">Color Distortion</spen>** of converted SVG, especially when `adaptive color quantization`
 * **🔷<span style="color:blue;">Blurred Borders</span>** of converted SVG
 
-### Design Draft
+### B. Design Draft
 ```
 Color Quantization:
     Add Blobs
