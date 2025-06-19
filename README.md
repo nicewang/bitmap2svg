@@ -44,6 +44,11 @@ pip install git+https://github.com/Opensource-Nice-Arishi/kaggle_drawing_with_LL
 * **🔷<span style="color:blue;">Blurred Borders</span>** of converted SVG
 
 ## Historical Versions
-* [v0.2.2](https://github.com/Opensource-Nice-Arishi/kaggle_drawing_with_LLMs/tree/v0.2.2-bitmap2svg)
-* [v0.2.1](https://github.com/Opensource-Nice-Arishi/kaggle_drawing_with_LLMs/tree/v0.2.1-bitmap2svg)
-* [v0.1.0](https://github.com/Opensource-Nice-Arishi/kaggle_drawing_with_LLMs/tree/v0.1.0-bitmap2svg)
+- CPU Version:
+    * [v0.2.3](https://github.com/Opensource-Nice-Arishi/kaggle_drawing_with_LLMs/tree/bitmap2svg-v0.2.3)
+    * [v0.2.2](https://github.com/Opensource-Nice-Arishi/kaggle_drawing_with_LLMs/tree/v0.2.2-bitmap2svg)
+    * [v0.2.1](https://github.com/Opensource-Nice-Arishi/kaggle_drawing_with_LLMs/tree/v0.2.1-bitmap2svg)
+    * [v0.1.0](https://github.com/Opensource-Nice-Arishi/kaggle_drawing_with_LLMs/tree/v0.1.0-bitmap2svg)
+- GPU Verison:
+    * [v0.2.3.2](https://github.com/Opensource-Nice-Arishi/kaggle_drawing_with_LLMs/tree/bitmap2svg-cu-v0.2.3.2)
+    * [v0.2.3.3 (Toy Version)](https://github.com/Opensource-Nice-Arishi/kaggle_drawing_with_LLMs/tree/bitmap2svg-cu-v0.2.3.3)
