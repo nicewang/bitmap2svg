@@ -43,12 +43,24 @@ pip install git+https://github.com/Opensource-Nice-Arishi/kaggle_drawing_with_LL
 * **🔷<span style="color:blue;">Color Distortion</spen>** of converted SVG, especially when `adaptive color quantization`
 * **🔷<span style="color:blue;">Blurred Borders</span>** of converted SVG
 
+### Design Draft
+```
+Color Quantization:
+    Add Blobs
+Contours Detectxtion and Simplification:
+    Add Shapes
+?:
+    Add Details
+Features (Polygons) Importance Sorting and Filtering:
+    Denoising
+```
+
 ## Historical Versions
 - CPU Version:
     * [v0.2.3](https://github.com/Opensource-Nice-Arishi/kaggle_drawing_with_LLMs/tree/bitmap2svg-v0.2.3)
-    * [v0.2.2](https://github.com/Opensource-Nice-Arishi/kaggle_drawing_with_LLMs/tree/v0.2.2-bitmap2svg)
-    * [v0.2.1](https://github.com/Opensource-Nice-Arishi/kaggle_drawing_with_LLMs/tree/v0.2.1-bitmap2svg)
-    * [v0.1.0](https://github.com/Opensource-Nice-Arishi/kaggle_drawing_with_LLMs/tree/v0.1.0-bitmap2svg)
+    * [v0.2.2](https://github.com/Opensource-Nice-Arishi/kaggle_drawing_with_LLMs/tree/v0.2.2-bitmap2svg) (Tagged)
+    * [v0.2.1](https://github.com/Opensource-Nice-Arishi/kaggle_drawing_with_LLMs/tree/v0.2.1-bitmap2svg) (Tagged)
+    * [v0.1.0](https://github.com/Opensource-Nice-Arishi/kaggle_drawing_with_LLMs/tree/v0.1.0-bitmap2svg) (Tagged)
 - GPU Verison:
     * [v0.2.3.2](https://github.com/Opensource-Nice-Arishi/kaggle_drawing_with_LLMs/tree/bitmap2svg-cu-v0.2.3.2)
-    * [v0.2.3.3 (Toy Version)](https://github.com/Opensource-Nice-Arishi/kaggle_drawing_with_LLMs/tree/bitmap2svg-cu-v0.2.3.3)
+    * [v0.2.3.3](https://github.com/Opensource-Nice-Arishi/kaggle_drawing_with_LLMs/tree/bitmap2svg-cu-v0.2.3.3) (Toy Version)
