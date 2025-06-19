@@ -4,7 +4,7 @@
 A library to convert bitmaps to SVG, using C++ and OpenCV
 
 * The `max_svg_size` of converted svg is `10000`
-* Compared with v0.2.1, the conversion effect is sacrificed, especially the depiction of details.
+* Compared with v0.2.2, ?.
 
 ### 2. Package Structure
 ```
