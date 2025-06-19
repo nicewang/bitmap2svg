@@ -1,4 +1,4 @@
-## Level-1
+## Level 1: The Main Idea
 
 **Keep in Mind**: Check whether - Did **Indeed Work** on **real-world problems**。
 
@@ -83,3 +83,5 @@ Apply DMs in **latent space** of ...
 | **AR Transformers** | - Billions of parameters <br> - Sequential generation | High-quality complex scenes | Extremely expensive computation | High-resolution synthesis |
 | **GANs** | - Adversarial training <br> - Fast generation | Fast, sharp results | - Training instability <br> - Mode collapse <br> - Hard to modeling complex, multi-modal distributions | - Simple datasets (limited variability) <br> - Face generation |
 | **Diffusion Models** | - Sequential denoising autoencoders <br> - Parameter sharing | - Stable training <br> - Versatile <br> - SOTA results | Slower than GANs | Most image synthesis tasks |
+
+## Level 2: The Structure
