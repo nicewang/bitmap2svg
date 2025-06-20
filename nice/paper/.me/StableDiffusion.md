@@ -86,8 +86,8 @@ Apply DMs in **latent space** of ...
 
 ## Level 2: The Structure
 ## Level 3: The Most Important Details
-### 1. UNet and Cross-Attention Based Conditioning Mechanism
-#### UNet
+### 1. UNet
+#### UNet Block
 
 ```
 Unified UNet Block = {
@@ -110,6 +110,8 @@ Decoder Unet Block (generally) = {
 } i.e. Upsample Block
 ```
 #### Special Design of UNet in Stable Diffusion
+There 2 types of block - `ResNet Block` and `Attention Block`
+
 ```
 ResNet Block:
 Input → Conv → Norm → Activation → Conv → Norm → Add → Output
@@ -156,6 +158,7 @@ Decoder:
   Resolution Level 2 (32×32): ResNet + CrossAttn + ResNet  # i=2
   Resolution Level 1 (64×64): ResNet + CrossAttn + ResNet  # i=1
 ```
+#### Whole Architecture
 So, the whole architecture of UNet may seems like following:
 
 ```
