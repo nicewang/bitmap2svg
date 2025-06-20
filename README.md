@@ -47,7 +47,7 @@ pip install git+https://github.com/Opensource-Nice-Arishi/kaggle_drawing_with_LL
 ```
 Color Quantization:
     Add Blobs
-Contours Detectxtion and Simplification:
+Contours Detection and Simplification:
     Add Shapes
 ?:
     Add Details
