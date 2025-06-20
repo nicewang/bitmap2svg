@@ -26,7 +26,7 @@ Apply DMs in **latent space** of ...
 	-  Complexity Reduction: 
 		-  *Learned Latent Space* is *"Perceptual Equivalent"* of *Perceptual Compression* without *Excessive Downsampling*
 		-  Generation inputs at *Low-Dimensional Latent Space* rather than *High-Dimensional Pixel Space*
-	-  Detail Preservation: Using *Autoencoder* to generate latent space representation is *Perceptual Equivalent* of *Perceptual Compression*
+	-  Detail Preservation: Using *Autoencoder* to generate latent space representation is *Perceptual Equivalent* of *Perceptual Compression* while *ignoring high-frequency, imperceptible details*
 - **Retain Performance**: Enables general conditioning inputs (text & bounding boxes, etc) and high-resolution sythesis.
 
 	- Better *Scaling Properties* (generator learn in latent space) compared to those learn from *high-dimensional pixel space*
@@ -85,3 +85,118 @@ Apply DMs in **latent space** of ...
 | **Diffusion Models** | - Sequential denoising autoencoders <br> - Parameter sharing | - Stable training <br> - Versatile <br> - SOTA results | Slower than GANs | Most image synthesis tasks |
 
 ## Level 2: The Structure
+## Level 3: The Most Important Details
+### 1. UNet and Cross-Attention Based Conditioning Mechanism
+#### UNet
+
+```
+Unified UNet Block = {
+    - Conv Layer: Conv2D
+    - Norm Layer: BatchNorm/GroupNorm/LayerNorm/etc. 
+    - Activation: ReLU/SiLU/GELU/etc.
+    - Attention Mechanism: Self-Attention/Cross-Attention
+    - Residual Connection
+}
+
+Encoder Unet Block (generally) = {
+	- Conv Layer: Conv2D
+   	- Norm Layer: BatchNorm/GroupNorm/LayerNorm/etc. 
+   	- Activation: ReLU/SiLU/GELU/etc.
+} i.e. Downsample Block
+
+Decoder Unet Block (generally) = {
+	- Transposed Conv2D/Interpolation
+	- Conv Layer: Conv2D
+} i.e. Upsample Block
+```
+#### Special Design of UNet in Stable Diffusion
+```
+ResNet Block:
+Input → Conv → Norm → Activation → Conv → Norm → Add → Output
+  ↓                                               ↑
+  └─────────────── Skip Connection ───────────────┘
+
+Attention Block = {
+	- Attention Mechanism: Self-Attention/Cross-Attention
+}
+```
+```
+ResNet (2015)
+
+Input x → [Conv → ReLU → Conv] → Add → Output
+    ↓                             ↑
+    └────── Identity Mapping ─────┘
+    
+- Purpose: To solve the gradient disappearance problem of deep networks
+- element-wise addition
+```
+```
+Skip Connection in UNet (2015)
+
+Encoder Features → [Bottleneck] → Decoder → Concat → Output
+       ↓                                      ↑
+       └────────── Skip Connection ───────────┘
+
+- Purpose: Maintain spatial detail information
+- channel-wise concatenation
+```
+example of UNet:
+
+```
+Encoder:
+  Resolution Level 1 (64×64): ResNet + ResNet + CrossAttn  # i=1
+  Resolution Level 2 (32×32): ResNet + ResNet + CrossAttn  # i=2
+  Resolution Level 3 (16×16): ResNet + ResNet + CrossAttn  # i=3
+
+Bottleneck:
+  Level 4 (8×8):   ResNet + CrossAttn + ResNet  # i=4
+
+Decoder:
+  Resolution Level 3 (16×16): ResNet + CrossAttn + ResNet  # i=3  
+  Resolution Level 2 (32×32): ResNet + CrossAttn + ResNet  # i=2
+  Resolution Level 1 (64×64): ResNet + CrossAttn + ResNet  # i=1
+```
+So, the whole architecture of UNet may seems like following:
+
+```
+Encoder                    Decoder
+Input                      Output
+  ↓                          ↑
+Block1 ─────────────────→ Block1'
+  ↓           skip           ↑
+Block2 ─────────────────→ Block2'  
+  ↓           conn           ↑
+Block3 ─────────────────→ Block3'
+  ↓                          ↑
+  └─────── Bottleneck ───────┘
+
+e.g.
+Resolution Level 1: 256×256×64  ────────→ 256×256×64
+Resolution Level 2: 128×128×128 ────────→ 128×128×128  
+Resolution Level 3: 64×64×256   ────────→ 64×64×256
+Resolution Level 4: 32×32×512   ────────→ 32×32×512
+                        ↓                    ↑
+                        Bottleneck: 16×16×1024
+```
+For Python Pseudocode
+
+```Python
+# Encoder Period - Store Feature
+encoder_features = []
+x = input_image
+for encoder_block in encoder_blocks:
+    x = encoder_block(x)
+    encoder_features.append(x)  # stored for skip connection
+    x = downsample(x)
+
+# Bottleneck
+x = bottleneck(x)
+
+# Decoder Period - Use skip connections
+for i, decoder_block in enumerate(decoder_blocks):
+    x = upsample(x)
+    skip_feat = encoder_features[-(i+1)]  # Encoder Feature of corresponding level
+    x = concat([x, skip_feat], dim=channel)  # concat
+    x = decoder_block(x) # for φ_N-i-1, N is the total-cnt of resolution levels
+
+```
