@@ -188,18 +188,101 @@ For Python Pseudocode
 encoder_features = []
 x = input_image
 for encoder_block in encoder_blocks:
-    x = encoder_block(x)
+    x = encoder_block(x) # i.e. φ_i
     encoder_features.append(x)  # stored for skip connection
     x = downsample(x)
 
 # Bottleneck
-x = bottleneck(x)
+x = bottleneck(x) # i.e. φ_N (The Level N+1 is the bottleneck-level, since i start from 0, current idx is N)
 
 # Decoder Period - Use skip connections
 for i, decoder_block in enumerate(decoder_blocks):
     x = upsample(x)
     skip_feat = encoder_features[-(i+1)]  # Encoder Feature of corresponding level
     x = concat([x, skip_feat], dim=channel)  # concat
-    x = decoder_block(x) # for φ_N-i-1, N is the total-cnt of resolution levels
+    x = decoder_block(x) # i.e. φ_N-i-1, N is the total-cnt of resolution levels
 
 ```
+### 2. Cross-Attention Based Conditioning Mechanism
+Cross-Attention in each resolution level:
+
+```Python
+class UNetResolutionLevel(nn.Module):
+    def forward(self, x, text_condition):
+        # x: (B, C, H, W) feature of current resolution level
+        
+        # ResNet blocks processing
+        for resnet_block in self.resnet_blocks:
+            x = resnet_block(x, timestep) # i.e. φ_i
+        
+        # Cross-attention applied in current resolution level
+        x_attended = self.cross_attention(
+            query=torch.matmul(x, W_Q_i),          
+            key=torch.matmul(text_condition, W_K_i),   
+            value=torch.matmul(text_condition, W_V_i)
+        )
+        
+        x = x + x_attended  # condition infused
+        
+        return x 
+```
+The whole UNet feed-forward:
+
+```Python
+def unet_forward(x, text_condition, timestep):
+    # Encoder
+    encoder_features = []
+    
+    # 64x64 -> 32x32 -> 16x16 -> 8x8
+    for level_i, encoder_level in enumerate(encoder_levels):
+        x = encoder_level(x, text_condition, timestep)  # cross-attention within it
+        encoder_features.append(x)  
+        x = downsample(x)
+    
+    # Bottleneck (8x8)
+    x = bottleneck(x, text_condition, timestep) # cross-attention within it
+    
+    # Decoder
+    # 8x8 -> 16x16 -> 32x32 -> 64x64
+    for level_i, decoder_level in enumerate(decoder_levels):
+        x = upsample(x)
+        skip_feat = encoder_features[-(level_i+1)]
+        x = torch.cat([x, skip_feat], dim=1)  # skip connection
+        x = decoder_level(x, text_condition, timestep)  # cross-attention within it
+    
+    return x  
+
+```
+How is condition passed to output?
+
+```
+Input Noise → Encoder → Bottleneck → Decoder → Output Image
+            	↑           ↑          ↑
+        	Cross-Attn  Cross-Attn  Cross-Attn
+            	↑           ↑          ↑
+        	Condition   Condition    Condition
+```
+### 3. Complete Denoising Cycle
+```Python
+# T full UNet feed-forward passes
+z = z_T  # initial noise
+for t in range(T, 0, -1):  # T, T-1, T-2, ..., 1
+    # A full UNet feed-forward pass is required at each time step t
+    predicted_noise = unet(z, t, condition)  # complete feed-forward pass
+    z = scheduler_step(z, predicted_noise, t)  # denoising update
+    
+final_result = z_0
+```
+### 4. Switch
+#### Concatenation Condition Infusion
+```Python
+z_conditioned = torch.cat([z_t, condition], dim=channel)
+output = unet(z_conditioned, t)
+```
+- More suitable for **image conditions** (**spatial corresponding**)
+
+#### Cross-Attention Condition Infusion
+```Python
+output = unet(z_t, t, text_condition=τθ(y))
+```
+- More suitable for **text conditions** (**semantic corresponding**)
