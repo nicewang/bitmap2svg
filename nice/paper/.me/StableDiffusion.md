@@ -226,6 +226,8 @@ class UNetResolutionLevel(nn.Module):
         
         return x 
 ```
+[A simple implementation of a cross-attention in UNet](stable_diffusion/cross_attention.py)
+
 The whole UNet feed-forward:
 
 ```Python
@@ -286,3 +288,6 @@ output = unet(z_conditioned, t)
 output = unet(z_t, t, text_condition=τθ(y))
 ```
 - More suitable for **text conditions** (**semantic corresponding**)
+
+## Level 4: The Other Details
+### 1. Tokenization of z\_t to visual tokens
