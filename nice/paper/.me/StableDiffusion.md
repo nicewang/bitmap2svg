@@ -86,7 +86,7 @@ Apply DMs in **latent space** of ...
 
 ## Level 2: The Structure
 #### Summarized Block-Diagram
-![summarized block-diagram](stable_diffusion/sd_block_diagram.png)
+![summarized block-diagram](stable_diffusion/sd_block_diagram.svg)
 #### Original in Paper
 ![original](stable_diffusion/paper_original.png)
 ## Level 3: The Most Important Details
