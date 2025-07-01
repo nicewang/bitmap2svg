@@ -10,7 +10,7 @@ build-backend = "scikit_build_core.build"
 
 [project]
 name = "bitmap2svg"
-version = "0.2.3"
+version = "0.2.2"
 description = "A library to convert bitmaps to SVG, using C++ and OpenCV."
 readme = "README.md"
 requires-python = ">=3.8"
