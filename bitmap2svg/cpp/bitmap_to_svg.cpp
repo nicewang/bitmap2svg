@@ -146,6 +146,65 @@ std::pair<cv::Mat, std::vector<Color>> perform_color_quantization_cpp(
     return {quantized_image_rgb, palette_vector_Color_struct};
 }
 
+// Epsilon adaptive calculation: 
+//      Dynamically adjust epsilon based on contour complexity
+double calculate_adaptive_epsilon(const std::vector<cv::Point>& contour, 
+                                double base_factor = 0.009) {
+    double perimeter = cv::arcLength(contour, true);
+    double area = cv::contourArea(contour);
+    
+    // Dynamically adjust epsilon based on contour complexity
+    double complexity_factor = perimeter / (2 * sqrt(CV_PI * area) + 1e-6);
+    
+    // Use a smaller epsilon for complex contours to preserve details
+    double adaptive_epsilon = base_factor * perimeter / (1 + complexity_factor);
+    
+    return std::max(0.5, adaptive_epsilon);
+}
+
+// Morphological preprocessing: clean up the mask and denoise
+cv::Mat preprocess_mask(const cv::Mat& mask) {
+    cv::Mat processed_mask;
+    
+    // Morphological closing operation -> fills small holes
+    cv::Mat kernel = cv::getStructuringElement(cv::MORPH_ELLIPSE, cv::Size(3, 3));
+    cv::morphologyEx(mask, processed_mask, cv::MORPH_CLOSE, kernel);
+    
+    // Morphological opening operation -> removes noise (denoising)
+    cv::morphologyEx(processed_mask, processed_mask, cv::MORPH_OPEN, kernel);
+    
+    return processed_mask;
+}
+
+// Simple Bezier Curve Output (Replace polygon output)
+std::string contour_to_smooth_path(const std::vector<cv::Point>& points, 
+                                 const std::string& color) {
+    if (points.size() < 3) return "";
+    
+    std::stringstream path;
+    path << "<path d=\"M" << points[0].x << "," << points[0].y;
+    
+    // connect points using quadratic Bezier curves
+    for (size_t i = 1; i < points.size(); i++) {
+        if (i == points.size() - 1) {
+            // closed path
+            path << "L" << points[i].x << "," << points[i].y << "Z";
+        } else {
+            // calculate control points (simplified version)
+            cv::Point current = points[i];
+            cv::Point next = points[(i + 1) % points.size()];
+            cv::Point control((current.x + next.x) / 2, (current.y + next.y) / 2);
+            
+            path << "Q" << control.x << "," << control.y 
+                 << " " << next.x << "," << next.y;
+            i++; // skip since it is already used as the end point
+        }
+    }
+    
+    path << "\" fill=\"" << color << "\"/>";
+    return path.str();
+}
+
 // Main conversion function
 std::string bitmapToSvg_with_internal_quantization(
     const unsigned char* raw_bitmap_data_rgb_ptr,
@@ -155,6 +214,9 @@ std::string bitmapToSvg_with_internal_quantization(
     double simplification_epsilon_factor,
     double min_contour_area,
     int max_features_to_render,
+    bool use_processed_mask,
+    bool adaptive_epsilon, 
+    bool use_smooth_paths,
     int original_svg_width,
     int original_svg_height
 ) {
@@ -206,20 +268,31 @@ std::string bitmapToSvg_with_internal_quantization(
             continue;
         }
 
+        if (use_processed_mask) {
+            mask = preprocess_mask(mask);
+        }
+
         std::vector<std::vector<cv::Point>> contours;
-        cv::findContours(mask, contours, cv::RETR_EXTERNAL, cv::CHAIN_APPROX_SIMPLE);
+        cv::findContours(mask, contours, cv::RETR_TREE, cv::CHAIN_APPROX_TC89_KCOS);
 
         std::string hex_color_str = compress_hex_color_cpp(pal_color_struct.r, pal_color_struct.g, pal_color_struct.b);
 
         for (const auto& contour : contours) {
             double area = cv::contourArea(contour);
-            if (area < min_contour_area) continue;
+            if (area < min_contour_area) {
+                continue;
+            }
 
-            std::vector<cv::Point> simplified_contour;
             double epsilon = std::max(0.5, simplification_epsilon_factor * cv::arcLength(contour, true));
+            if (adaptive_epsilon) {
+                epsilon = calculate_adaptive_epsilon(contour, simplification_epsilon_factor);
+            }
+            std::vector<cv::Point> simplified_contour;
             cv::approxPolyDP(contour, simplified_contour, epsilon, true);
 
-            if (simplified_contour.size() < 3) continue;
+            if (simplified_contour.size() < 3) {
+                continue;
+            }
 
             cv::Moments M = cv::moments(simplified_contour);
             cv::Point2f contour_center(0.0f, 0.0f);
@@ -269,14 +342,21 @@ std::string bitmapToSvg_with_internal_quantization(
             break;
         }
 
-        svg_ss << "<polygon points=\"";
-        for (size_t i = 0; i < feature.points.size(); ++i) {
-            svg_ss << feature.points[i].x << "," << feature.points[i].y;
-            if (i < feature.points.size() - 1) {
-                svg_ss << " ";
+        if (use_smooth_paths) {
+            std::string smooth_path = contour_to_smooth_path(feature.points, feature.color_hex);
+            if (!smooth_path.empty()) {
+                svg_ss << smooth_path;
             }
+        } else {
+            svg_ss << "<polygon points=\"";
+            for (size_t i = 0; i < feature.points.size(); ++i) {
+                svg_ss << feature.points[i].x << "," << feature.points[i].y;
+                if (i < feature.points.size() - 1) {
+                    svg_ss << " ";
+                }
+            }
+            svg_ss << "\" fill=\"" << feature.color_hex << "\"/>";
         }
-        svg_ss << "\" fill=\"" << feature.color_hex << "\"/>";
         features_rendered++;
     }
 

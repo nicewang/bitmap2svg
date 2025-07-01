@@ -9,7 +9,10 @@ def bitmap_to_svg(
     target_size: tuple[int, int] = (384, 384), # Target (width, height) for resizing.
     simplification_epsilon_factor: float = 0.009, # Controls polygon simplification.
     min_contour_area: float = 10.0,              # Minimum area for a polygon to be included.
-    max_features_to_render: int = 0              # Max number of polygons (0 for unlimited).
+    max_features_to_render: int = 0,              # Max number of polygons (0 for unlimited).
+    use_processed_mask = False,         # Whether to use processed mask before finding contours.
+    adaptive_epsilon = False,           # Whether to use adaptive calculated epsilon in approxPolyDP.
+    use_smooth_paths: bool = False      # Whether to use simple Bezier curve output instead of polygon output.
 ) -> str:
     """
     Converts a PIL Image object to an SVG string using the C++ backend.
@@ -42,6 +45,9 @@ def bitmap_to_svg(
                                 Features are typically sorted by area descending,
                                 so this effectively renders the largest N features.
                                 Default: 0 (unlimited).
+        use_processed_mask: Whether to use processed mask before finding contours.
+        adaptive_epsilon: Whether to use adaptive calculated epsilon in approxPolyDP.
+        use_smooth_paths: Whether to use simple Bezier curve output instead of polygon output.
 
     Returns:
         A string containing the SVG code.
@@ -101,6 +107,9 @@ def bitmap_to_svg(
             simplification_epsilon_factor=simplification_epsilon_factor,
             min_contour_area=min_contour_area,
             max_features_to_render=max_features_to_render,
+            use_processed_mask=use_processed_mask,
+            adaptive_epsilon=adaptive_epsilon,
+            use_smooth_paths=use_smooth_paths,
             original_width_py=original_pil_width, # For SVG's width attribute
             original_height_py=original_pil_height # For SVG's height attribute
         )

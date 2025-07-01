@@ -19,9 +19,12 @@ PYBIND11_MODULE(bitmap2svg_core, m) {
           [](
             py::array_t<unsigned char, py::array::c_style | py::array::forcecast> raw_bitmap_data_rgb,
             int num_colors_hint,
-            double simplification_epsilon_factor, // New parameter
-            double min_contour_area,             // New parameter
-            int max_features_to_render,          // New parameter
+            double simplification_epsilon_factor, 
+            double min_contour_area,             
+            int max_features_to_render, 
+            bool use_processed_mask,
+            bool adaptive_epsilon, 
+            bool use_smooth_paths,          
             py::object original_width_py,
             py::object original_height_py
           ) {
@@ -87,15 +90,21 @@ PYBIND11_MODULE(bitmap2svg_core, m) {
             simplification_epsilon_factor,
             min_contour_area,
             max_features_to_render,
+            use_processed_mask,
+            adaptive_epsilon, 
+            use_smooth_paths,
             call_original_svg_width,  // Corresponds to original_svg_width in C++ func
             call_original_svg_height  // Corresponds to original_svg_height in C++ func
         );
 
     }, py::arg("raw_bitmap_data_rgb"),
        py::arg("num_colors_hint") = 0, // Default: adaptive color selection in C++
-       py::arg("simplification_epsilon_factor") = 0.015, // Adjusted default (was 0.005 hardcoded, 0.0075 or 0.015 reasonable start)
-       py::arg("min_contour_area") = 30.0,              // Default minimum area
+       py::arg("simplification_epsilon_factor") = 0.009, // Adjusted default (was 0.005 hardcoded, 0.0075 or 0.015 reasonable start)
+       py::arg("min_contour_area") = 10.0,              // Default minimum area
        py::arg("max_features_to_render") = 0,           // Default: 0 means unlimited features
+       py::arg("use_processed_mask") = false,           // Default: false
+       py::arg("adaptive_epsilon") = false,             // Default: false
+       py::arg("use_smooth_paths") = false,             // Default: false
        py::arg("original_width_py") = py::none(),       // Default to None if not provided
        py::arg("original_height_py") = py::none(),      // Default to None if not provided
        "Converts a raw RGB bitmap (3D NumPy array HxWx3) to an SVG string.\n"
@@ -104,6 +113,9 @@ PYBIND11_MODULE(bitmap2svg_core, m) {
        " - simplification_epsilon_factor: Controls polygon simplification (higher means more simplification).\n"
        " - min_contour_area: Minimum area for a polygon to be included.\n"
        " - max_features_to_render: Max number of polygons (0 for unlimited).\n"
+       " - use_processed_mask: Whether to use processed mask before finding contours.\n"
+       " - adaptive_epsilon: Whether to use adaptive calculated epsilon in approxPolyDP.\n"
+       " - use_smooth_paths: Whether to use simple bezier curve output instead of polygon output.\n"
        " - original_width_py/original_height_py: Optional SVG header dimensions."
     );
 }
