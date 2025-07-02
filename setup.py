@@ -9,6 +9,6 @@ setup(
     author="Xiaonan (Nice) Wang",
     author_email="wangxiaonannice@gmail.com",
     license="MIT",  
-    url="https://github.com/Opensource-Nice-Arishi/kaggle_drawing_with_LLMs/tree/bitmap2svg",
+    url="https://github.com/Opensource-Nice-Arishi/kaggle_drawing_with_LLMs/tree/bitmap2svg-v0.2.3",
     packages=["bitmap2svg"],
 )
