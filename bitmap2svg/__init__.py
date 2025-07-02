@@ -10,8 +10,8 @@ def bitmap_to_svg(
     simplification_epsilon_factor: float = 0.009, # Controls polygon simplification.
     min_contour_area: float = 10.0,              # Minimum area for a polygon to be included.
     max_features_to_render: int = 0,              # Max number of polygons (0 for unlimited).
-    use_processed_mask = False,         # Whether to use processed mask before finding contours.
-    adaptive_epsilon = False,           # Whether to use adaptive calculated epsilon in approxPolyDP.
+    use_processed_mask: bool = False,         # Whether to use processed mask before finding contours.
+    adaptive_epsilon: bool = False,           # Whether to use adaptive calculated epsilon in approxPolyDP.
     use_smooth_paths: bool = False      # Whether to use simple Bezier curve output instead of polygon output.
 ) -> str:
     """
