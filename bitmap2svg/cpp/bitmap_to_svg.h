@@ -47,6 +47,9 @@ struct SvgFeature {
  * @param min_contour_area Minimum area for a contour to be considered significant enough to be rendered. Default: 10.0.
  * @param max_features_to_render Maximum number of polygon features to render in the SVG.
  * If <= 0, all important features will be rendered (respecting other size constraints). Default: 0.
+ * @param use_processed_mask Whether to use processed mask before finding contours. Default: False.
+ * @param adaptive_epsilon Whether to use adaptive calculated epsilon in approxPolyDP. Default: False.
+ * @param use_smooth_paths Whether to use simple Bezier curve output instead of polygon output. Default: False.
  * @param original_svg_width Width to be set in the SVG's `width` attribute.
  * If <= 0, the processed image width is used. Default: -1.
  * @param original_svg_height Height to be set in the SVG's `height` attribute.
@@ -61,6 +64,9 @@ std::string bitmapToSvg_with_internal_quantization(
     double simplification_epsilon_factor = 0.009,
     double min_contour_area = 10.0,
     int max_features_to_render = 0,
+    bool use_processed_mask = false,
+    bool adaptive_epsilon = false, 
+    bool use_smooth_paths = false,
     int original_svg_width = -1,
     int original_svg_height = -1
 );
