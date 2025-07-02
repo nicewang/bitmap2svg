@@ -273,7 +273,7 @@ std::string bitmapToSvg_with_internal_quantization(
         }
 
         std::vector<std::vector<cv::Point>> contours;
-        cv::findContours(mask, contours, cv::RETR_TREE, cv::CHAIN_APPROX_TC89_KCOS);
+        cv::findContours(mask, contours, cv::RETR_TREE, cv::CHAIN_APPROX_NONE);
 
         std::string hex_color_str = compress_hex_color_cpp(pal_color_struct.r, pal_color_struct.g, pal_color_struct.b);
 
