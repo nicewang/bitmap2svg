@@ -1,2 +1,2 @@
 ### Paper
-* [Stable Diffusion](../../paper/stable_diffusion/README.md)
+* [Stable Diffusion](../../paper/stable_diffusion/)
