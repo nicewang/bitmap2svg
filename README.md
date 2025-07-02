@@ -1,10 +1,12 @@
 # bitmap2svg
-## Version: 0.2.5
+## Version: 0.2.5.1
 ### 1. Introduction
 A library to convert bitmaps to SVG, using C++ and OpenCV
 
 * The `max_svg_size` of converted svg is `10000`
-* Compared with v0.2.3: Same modifications as (v0.2.4 compared to v0.2.2)
+* Compared with v0.2.5:
+    * When calling **cv::findContours**:
+        * `CHAIN_APPROX_TC89_KCOS` -> `CHAIN_APPROX_NONE`
 
 ### 2. Package Structure
 ```
@@ -35,6 +37,6 @@ pip install .
 pip install -q opencv-python scikit-image pillow
 pip install scikit-build-core cmake ninja pybind11
 # then install this lib
-pip install git+https://github.com/Opensource-Nice-Arishi/kaggle_drawing_with_LLMs.git@bitmap2svg-v0.2.5
+pip install git+https://github.com/Opensource-Nice-Arishi/kaggle_drawing_with_LLMs.git@bitmap2svg-v0.2.5.1
 
 ```
