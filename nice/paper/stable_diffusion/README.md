@@ -1,3 +1,7 @@
+# Original Paper
+[**paper**](stable_diffusion.pdf)
+
+# Summarization
 ## Level 1: The Main Idea
 
 **Keep in Mind**: Check whether - Did **Indeed Work** on **real-world problems**。
@@ -38,7 +42,7 @@ Apply DMs in **latent space** of ...
 
 - On Diverse Tasks and More Flexible (also the supplements to **Retain Performance**):
 
-	- For **Densely Conditioned** Tasks (super-resolution, inpainting, semantic synthesis, etc.): Could be applied in a *convolutional fashion* and render large
+	- For **Densely Conditioned** Tasks (super-resolution, inpainting, semantic synthesis, etc.): Could be applied in a *convolutional fashion* and render large -> But keep in mind, the convolutional neural network structure runs through the autoencoder part and UNet part.
 
 	- For **Class-Conditional** Tasks (text-to-image, layout-to-image, etc.): A *general-purpose conditioning mechanism* based on *cross-attention*, enabling *multi-modal* training  -> (conditioning inputs (text & bounding boxes, etc))
 
@@ -90,6 +94,7 @@ Apply DMs in **latent space** of ...
 #### Original in Paper
 ![original](stable_diffusion/paper_original.png)
 ## Level 3: The Most Important Details
+### Track Down Central Citations (fr Papers, Supplement Materials and Source Codes) and Follow Each Step of Author's (Main) Contribution
 ### 1. UNet
 #### UNet Block
 
@@ -293,5 +298,36 @@ output = unet(z_t, t, text_condition=τθ(y))
 ```
 - More suitable for **text conditions** (**semantic corresponding**)
 
+### For Results Section
+#### 1. Do the results justify the method?
+#### 2. Are there cases/scenarios that should have been tested but weren’t?
+#### 3. Is the complexity of the method justified (in terms of some quantifiable metric) by its advantages over other methods that may be simpler or easier to use?
+#### 4. Where does the method fail?
+
 ## Level 4: The Other Details
 ### 1. Tokenization of z\_t to visual tokens
+```
+[batches, channel, height, width] -tokenization: split into patches-> [patches, visual_tokens]
+
+Each patch, i.e. [visual_tokens]
+					\
+						-> CrossAttn -> Output of each patch 
+					/
+Conditon embeddings, i.e. [condition_tokens]
+
+if:
+	visual_tokens = m
+	condition_tokens = n
+then:
+	output of each CrossAttn = 
+			[[softmax(q1k1)v1/√d+...+softmax(q1kn)vn/√d],
+			 ...
+			 [softmax(qmk1)v1/√d+...+softmax(qmkn)vn/√d]]
+			 
+if:
+	patches = k
+then:
+	k times cross-attn
+	k [m_dimension]-output
+	some aggregation (eg. concatenate) -> One Overall Output of this level
+```
