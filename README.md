@@ -4,6 +4,7 @@
 A library to convert bitmaps to SVG, using C++, OpenCV, with potential CUDA/FAISS GPU acceleration.
 
 * The `max_svg_size` of converted svg is `10000`
+* The *GPU Version* of v0.2.3
 
 ### 2. Package Structure
 ```
