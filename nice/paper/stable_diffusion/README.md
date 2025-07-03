@@ -96,11 +96,13 @@ Apply DMs in **latent space** of ...
 > 
 > This is kind of like level 4 since including details of implementation.
 >
+
 #### Summarized Block-Diagram (Simplified, but  Generally Should Be Like This)
 ToDo
 #### Original in Paper
 ![original](stable_diffusion/paper_original.png)
 ## Level 3: The Most Important Details
+
 > [!Note]
 > 
 > PS: This is kind of like level 4 since including details of implementation.
