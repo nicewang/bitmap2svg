@@ -1,33 +1,40 @@
+import os
+os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
+
 import torch
 import torch.nn as nn
-from diffusers import StableDiffusionPipeline
+from diffusers import StableDiffusionPipeline, DPMSolverMultistepScheduler
 import numpy as np
 import cv2
 from PIL import Image
-from sklearn.cluster import KMeans
-import xml.etree.ElementTree as ET
-from typing import List, Tuple, Dict, Optional
-import matplotlib.pyplot as plt
+from typing import List, Tuple, Dict
 from transformers import CLIPProcessor, CLIPModel
-import base64
-from io import BytesIO
+
+import kagglehub
 
 class EnhancedVisionLanguageTextToSVG:
-    def __init__(self, model_id: str = "runwayml/stable-diffusion-v1-5"):
-        self.device = "cuda" if torch.cuda.is_available() else "cpu"
-        print(f"Using device: {self.device}")
+    def __init__(self):
+        self.device = "cuda:1" if torch.cuda.is_available() else "cpu"
         
+        self.model_id = kagglehub.model_download("stabilityai/stable-diffusion-v2/pytorch/1/1")
+
         # Initialize Stable Diffusion pipeline
+        scheduler = DPMSolverMultistepScheduler.from_pretrained(self.model_id, subfolder="scheduler")
+
         self.pipe = StableDiffusionPipeline.from_pretrained(
-            model_id,
-            torch_dtype=torch.float16 if self.device == "cuda" else torch.float32,
-            use_safetensors=True
+            self.model_id,
+            scheduler=scheduler,
+            torch_dtype=torch.float16,  # Use half precision
+            safety_checker=None         # Disable safety checker for speed
         )
         self.pipe = self.pipe.to(self.device)
         
         # Initialize CLIP for semantic understanding
-        self.clip_model = CLIPModel.from_pretrained("openai/clip-vit-base-patch32")
-        self.clip_processor = CLIPProcessor.from_pretrained("openai/clip-vit-base-patch32")
+        # self.clip_model = CLIPModel.from_pretrained("openai/clip-vit-base-patch32")
+        # self.clip_processor = CLIPProcessor.from_pretrained("openai/clip-vit-base-patch32")
+        self.clip_model_path = kagglehub.model_download('nicecaliforniaw/openai-clip-vit-large-patch14/Transformers/default/1')
+        self.clip_model = CLIPModel.from_pretrained(self.clip_model_path)
+        self.clip_processor = CLIPProcessor.from_pretrained(self.clip_model_path)
         self.clip_model.to(self.device)
         
         # SVG generation parameters (from C++ logic)
@@ -41,18 +48,20 @@ class EnhancedVisionLanguageTextToSVG:
             "road", "field", "forest", "lake", "river", "hill"
         ]
         
-    def generate_image(self, prompt: str, **kwargs) -> Image.Image:
+    def generate_image(self, prompt: str, negative_prompt: str, **kwargs) -> Image.Image:
         """Generate image from text prompt using Stable Diffusion"""
         default_kwargs = {
-            "num_inference_steps": 50,
-            "guidance_scale": 7.5,
+            "num_inference_steps": 27,
+            "guidance_scale": 20,
             "height": 512,
             "width": 512
         }
         default_kwargs.update(kwargs)
         
         with torch.no_grad():
-            result = self.pipe(prompt, **default_kwargs)
+            result = self.pipe(prompt=prompt, negative_prompt=negative_prompt, **default_kwargs)
+        
+        torch.cuda.empty_cache()
         
         return result.images[0]
     
@@ -65,49 +74,107 @@ class EnhancedVisionLanguageTextToSVG:
         else:
             return f"#{r:02x}{g:02x}{b:02x}"
     
-    def perform_color_quantization(self, image: np.ndarray, num_colors: int = 8) -> Tuple[np.ndarray, List[Tuple[int, int, int]]]:
-        """Enhanced color quantization using K-means (based on C++ logic)"""
+    def perform_color_quantization(self, image: np.ndarray, num_colors_hint: int = 0) -> Tuple[np.ndarray, List[Tuple[int, int, int]]]:
+        """
+        Enhanced color quantization using K-means with full adaptive logic from C++
+        
+        Args:
+            image: Input RGB image
+            num_colors_hint: Color count hint (0 for automatic, >0 for manual)
+        
+        Returns:
+            Tuple of (quantized_image, palette)
+        """
         if len(image.shape) != 3 or image.shape[2] != 3:
             raise ValueError("Image must be RGB with 3 channels")
         
-        # Adaptive color count based on image size
-        if num_colors <= 0:
+        # Adaptive color count based on image size (exactly matching C++ logic)
+        k = num_colors_hint
+        if k <= 0:
             pixel_count = image.shape[0] * image.shape[1]
-            if pixel_count < 16384:  # < 128x128
-                num_colors = 6
+            if pixel_count == 0:
+                k = 1
+            elif pixel_count < 16384:  # < 128x128
+                k = 6
             elif pixel_count < 65536:  # < 256x256
-                num_colors = 8
+                k = 8
             elif pixel_count < 262144:  # < 512x512
-                num_colors = 10
+                k = 10
             else:
-                num_colors = 12
+                k = 12
         
-        # Ensure reasonable range
-        num_colors = max(1, min(num_colors, 16))
+        # Ensure k is within reasonable range [1, 16] for automatic selection
+        # But allow user override if num_colors_hint was > 0 initially
+        if num_colors_hint <= 0:
+            k = max(1, min(k, 16))
+        else:
+            k = max(1, k)  # Only ensure minimum of 1 for manual selection
         
         # Reshape image for K-means
         pixels = image.reshape(-1, 3).astype(np.float32)
         
-        # Handle edge case where we have fewer unique colors than requested
+        if pixels.shape[0] == 0:
+            print("Error: No samples to process for k-means (image might be empty)")
+            return image.astype(np.uint8), [(128, 128, 128)]  # Fallback
+        
+        # Handle case where we have fewer pixels than requested clusters
+        if pixels.shape[0] < k:
+            k = pixels.shape[0]
+            if k == 0:
+                return image.astype(np.uint8), [(128, 128, 128)]  # Fallback
+        
+        # Check for unique colors to avoid unnecessary clustering
         unique_colors = np.unique(pixels, axis=0)
-        if len(unique_colors) < num_colors:
-            num_colors = len(unique_colors)
+        if len(unique_colors) <= k:
+            # If we have fewer unique colors than requested, use them directly
+            k = len(unique_colors)
+            centers = unique_colors.astype(np.float32)
+            
+            # Create labels by finding closest center for each pixel
+            labels = np.zeros(pixels.shape[0], dtype=np.int32)
+            for i, pixel in enumerate(pixels):
+                distances = np.sum((centers - pixel) ** 2, axis=1)
+                labels[i] = np.argmin(distances)
+        else:
+            # Perform K-means clustering with adaptive parameters
+            criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 50, 0.1)
+            attempts = 5 if k <= 8 else 7
+            
+            try:
+                _, labels, centers = cv2.kmeans(
+                    pixels, k, None, criteria, attempts, cv2.KMEANS_PP_CENTERS
+                )
+            except cv2.error as e:
+                print(f"K-means failed: {e}. Using fallback method.")
+                # Fallback to simple uniform sampling
+                indices = np.linspace(0, len(unique_colors) - 1, k, dtype=int)
+                centers = unique_colors[indices].astype(np.float32)
+                labels = np.zeros(pixels.shape[0], dtype=np.int32)
+                for i, pixel in enumerate(pixels):
+                    distances = np.sum((centers - pixel) ** 2, axis=1)
+                    labels[i] = np.argmin(distances)
         
-        # Perform K-means clustering
-        criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 50, 0.1)
-        attempts = 5 if num_colors <= 8 else 7
-        
-        _, labels, centers = cv2.kmeans(
-            pixels, num_colors, None, criteria, attempts, cv2.KMEANS_PP_CENTERS
-        )
+        # Handle empty centers (fallback logic from C++)
+        if centers.shape[0] == 0:
+            print("Warning: k-means returned 0 centers. Using average color fallback.")
+            avg_color = np.mean(image, axis=(0, 1))
+            centers = avg_color.reshape(1, -1).astype(np.float32)
+            labels = np.zeros(pixels.shape[0], dtype=np.int32)
+            k = 1
         
         # Create quantized image
         quantized_pixels = centers[labels.flatten()]
         quantized_image = quantized_pixels.reshape(image.shape).astype(np.uint8)
         
-        # Extract palette
-        palette = [(int(c[0]), int(c[1]), int(c[2])) for c in centers]
+        # Extract palette with proper bounds checking
+        palette = []
+        for i in range(centers.shape[0]):
+            r = int(np.clip(centers[i, 0], 0, 255))
+            g = int(np.clip(centers[i, 1], 0, 255))
+            b = int(np.clip(centers[i, 2], 0, 255))
+            palette.append((r, g, b))
         
+        print(f"Color quantization completed: {len(palette)} colors from {k} requested")
         return quantized_image, palette
     
     def extract_contours_for_color(self, quantized_image: np.ndarray, target_color: Tuple[int, int, int], 
@@ -322,12 +389,12 @@ class EnhancedVisionLanguageTextToSVG:
         
         svg_parts.append('</svg>')
         
-        print(f"Generated SVG with {features_added} features")
         return ''.join(svg_parts)
     
     def text_to_svg_enhanced(self, 
-                           prompt: str, 
-                           num_colors: int = 8,
+                           prompt: str,
+                           negative_prompt: str, 
+                           num_colors: int = 0,  # 0 for automatic, >0 for manual
                            width: int = 512, 
                            height: int = 512,
                            max_features: int = 100,
@@ -335,11 +402,11 @@ class EnhancedVisionLanguageTextToSVG:
                            simplification_epsilon: float = 0.02,
                            **generation_kwargs) -> Tuple[str, Image.Image]:
         """
-        Enhanced text-to-SVG pipeline with C++ logic integration
+        Enhanced text-to-SVG pipeline with full adaptive color quantization
         
         Args:
             prompt: Text description
-            num_colors: Number of colors for quantization
+            num_colors: Number of colors (0 for automatic adaptation, >0 for manual)
             width: SVG width
             height: SVG height
             max_features: Maximum features to render
@@ -351,22 +418,15 @@ class EnhancedVisionLanguageTextToSVG:
             Tuple of (SVG string, generated image)
         """
         
-        print(f"🎨 Generating image from prompt: '{prompt}'")
         # Step 1: Generate image
-        image = self.generate_image(prompt, width=width, height=height, **generation_kwargs)
+        image = self.generate_image(prompt=prompt, negative_prompt=negative_prompt, width=width, height=height, **generation_kwargs)
         
-        print(f"🔍 Performing color quantization with {num_colors} colors")
-        # Step 2: Enhanced color quantization
+        # Step 2: Enhanced color quantization with full adaptive logic
         img_array = np.array(image)
         quantized_image, palette = self.perform_color_quantization(img_array, num_colors)
         
-        print(f"🏷️  Classifying segments using CLIP")
         # Step 3: Classify segments
         segments_info = self.classify_segments_enhanced(image, quantized_image, palette)
-        
-        print(f"📝 Found {len(segments_info)} segments")
-        for seg in segments_info:
-            print(f"   - {seg['category']}: {seg['confidence']:.2f} confidence")
         
         print(f"🎭 Creating enhanced SVG representation")
         # Step 4: Create enhanced SVG
@@ -375,57 +435,19 @@ class EnhancedVisionLanguageTextToSVG:
             width, height, max_features
         )
         
-        print(f"✅ Enhanced SVG generation complete!")
         return svg_content, image
-    
-    def save_svg(self, svg_content: str, filename: str):
-        """Save SVG to file"""
-        with open(filename, 'w', encoding='utf-8') as f:
-            f.write(svg_content)
-        print(f"💾 SVG saved to {filename}")
 
 # Example usage
 if __name__ == "__main__":
-    # Initialize the enhanced text-to-SVG converter
     converter = EnhancedVisionLanguageTextToSVG()
-    
-    # Test prompts
-    test_prompts = [
-        "a beautiful landscape with mountains and trees",
-        "a simple house with a garden",
-        "a sunset over the ocean",
-        "a forest with tall trees and flowers"
-    ]
-    
-    for i, prompt in enumerate(test_prompts):
-        print(f"\n{'='*60}")
-        print(f"Processing prompt {i+1}: {prompt}")
-        print(f"{'='*60}")
-        
-        try:
-            # Generate enhanced SVG
-            svg_content, original_image = converter.text_to_svg_enhanced(
-                prompt=prompt,
-                num_colors=8,
-                max_features=80,
-                min_contour_area=150,
-                simplification_epsilon=0.015,
-                num_inference_steps=30,
-                guidance_scale=7.5
-            )
-            
-            # Save results
-            svg_filename = f"enhanced_svg_{i+1}.svg"
-            img_filename = f"enhanced_original_{i+1}.png"
-            
-            converter.save_svg(svg_content, svg_filename)
-            original_image.save(img_filename)
-            
-            print(f"🖼️  Original image saved to {img_filename}")
-            
-        except Exception as e:
-            print(f"❌ Error processing prompt: {e}")
-            continue
-    
-    print(f"\n🎉 All done! Check the enhanced SVG files.")
-    
+
+    svg_content, image = converter.text_to_svg_enhanced(
+        prompt="a lighthouse overlooking the ocean",
+        negative_prompt='',
+        num_colors=0,           
+        max_features=100,        
+        min_contour_area=1.0,   
+        simplification_epsilon=0.009,  
+        num_inference_steps=27,
+        guidance_scale=20
+    )
