@@ -1,4 +1,4 @@
-- Generate the image first (as you're doing)
+- Generate the image first
 - Use computer vision to extract semantic segments
 - Convert segments to geometric shapes
 - Reconstruct as SVG
