@@ -12,6 +12,8 @@ from transformers import CLIPProcessor, CLIPModel
 
 import kagglehub
 
+import logging
+
 class EnhancedVisionLanguageTextToSVG:
     def __init__(self):
         self.device = "cuda:1" if torch.cuda.is_available() else "cpu"
@@ -174,7 +176,6 @@ class EnhancedVisionLanguageTextToSVG:
             b = int(np.clip(centers[i, 2], 0, 255))
             palette.append((r, g, b))
         
-        print(f"Color quantization completed: {len(palette)} colors from {k} requested")
         return quantized_image, palette
     
     def extract_contours_for_color(self, quantized_image: np.ndarray, target_color: Tuple[int, int, int], 
@@ -369,7 +370,7 @@ class EnhancedVisionLanguageTextToSVG:
                 break
                 
             if current_size > (self.MAX_SVG_SIZE_BYTES - self.SVG_SIZE_SAFETY_MARGIN):
-                print(f"Warning: Approaching max SVG size, truncating output")
+                logging.error(f"Warning: Approaching max SVG size, truncating output")
                 break
             
             contour = feature['contour']
@@ -428,7 +429,6 @@ class EnhancedVisionLanguageTextToSVG:
         # Step 3: Classify segments
         segments_info = self.classify_segments_enhanced(image, quantized_image, palette)
         
-        print(f"🎭 Creating enhanced SVG representation")
         # Step 4: Create enhanced SVG
         svg_content = self.create_enhanced_svg(
             image, quantized_image, palette, segments_info,
