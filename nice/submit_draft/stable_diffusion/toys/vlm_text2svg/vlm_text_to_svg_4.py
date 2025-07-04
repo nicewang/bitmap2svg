@@ -27,16 +27,13 @@ class EnhancedVisionLanguageTextToSVG:
             self.model_id,
             scheduler=scheduler,
             torch_dtype=torch.float16,  # Use half precision
-            safety_checker=None         # Disable safety checker for speed
+            safety_checker=None       # Disable safety checker for speed
         )
         self.pipe = self.pipe.to(self.device)
         
         # Initialize CLIP for semantic understanding
         self.clip_model = CLIPModel.from_pretrained("openai/clip-vit-base-patch32")
         self.clip_processor = CLIPProcessor.from_pretrained("openai/clip-vit-base-patch32")
-        # self.clip_model_path = kagglehub.model_download('nicecaliforniaw/openai-clip-vit-large-patch14/Transformers/default/1')
-        # self.clip_model = CLIPModel.from_pretrained(self.clip_model_path)
-        # self.clip_processor = CLIPProcessor.from_pretrained(self.clip_model_path)
         self.clip_model.to(self.device)
         
         # SVG generation parameters (from C++ logic)
@@ -179,8 +176,8 @@ class EnhancedVisionLanguageTextToSVG:
         return quantized_image, palette
     
     def extract_contours_for_color(self, quantized_image: np.ndarray, target_color: Tuple[int, int, int], 
-                                  min_contour_area: float = 100, 
-                                  simplification_epsilon_factor: float = 0.02) -> List[np.ndarray]:
+                                     min_contour_area: float = 100, 
+                                     simplification_epsilon_factor: float = 0.02) -> List[np.ndarray]:
         """Extract and simplify contours for a specific color (from C++ logic)"""
         # Create mask for target color
         mask = cv2.inRange(quantized_image, target_color, target_color)
@@ -207,8 +204,8 @@ class EnhancedVisionLanguageTextToSVG:
         return simplified_contours
     
     def calculate_feature_importance(self, contour: np.ndarray, area: float, 
-                                   image_center: Tuple[float, float], 
-                                   max_dist_from_center: float) -> float:
+                                     image_center: Tuple[float, float], 
+                                     max_dist_from_center: float) -> float:
         """Calculate feature importance based on C++ logic"""
         # Calculate contour center
         M = cv2.moments(contour)
@@ -228,7 +225,7 @@ class EnhancedVisionLanguageTextToSVG:
         return importance
     
     def classify_segments_enhanced(self, image: Image.Image, quantized_image: np.ndarray, 
-                                 palette: List[Tuple[int, int, int]]) -> List[Dict]:
+                                     palette: List[Tuple[int, int, int]]) -> List[Dict]:
         """Enhanced segment classification using CLIP"""
         segment_info = []
         
@@ -308,10 +305,10 @@ class EnhancedVisionLanguageTextToSVG:
         return style_map.get(category, {"fill": "#CCCCCC", "stroke": "#888888", "stroke-width": "0.5"})
     
     def create_enhanced_svg(self, image: Image.Image, quantized_image: np.ndarray, 
-                           palette: List[Tuple[int, int, int]], segments_info: List[Dict],
-                           width: int = 512, height: int = 512,
-                           max_features: int = 100) -> str:
-        """Create enhanced SVG using C++ logic"""
+                              palette: List[Tuple[int, int, int]], segments_info: List[Dict],
+                              width: int = 512, height: int = 512,
+                              max_features: int = 100) -> str:
+        """Create enhanced SVG using the corrected Hybrid Approach"""
         
         # Calculate image center and max distance
         image_center = (quantized_image.shape[1] / 2.0, quantized_image.shape[0] / 2.0)
@@ -336,16 +333,12 @@ class EnhancedVisionLanguageTextToSVG:
                     contour, area, image_center, max_dist_from_center
                 )
                 
-                # Get style for this category
-                style = self.get_category_style_enhanced(category)
-                
                 all_features.append({
                     'contour': contour,
                     'color': color,
                     'category': category,
                     'area': area,
-                    'importance': importance,
-                    'style': style
+                    'importance': importance
                 })
         
         # Sort by importance (descending)
@@ -374,13 +367,34 @@ class EnhancedVisionLanguageTextToSVG:
                 break
             
             contour = feature['contour']
-            style = feature['style']
+            category = feature['category']
             
-            # Create polygon points
+            # --- OPTIMIZATION START (Hybrid Approach) ---
+            
+            # 1. Get the style definition (e.g., for stroke) based on the semantic category.
+            style_from_category = self.get_category_style_enhanced(category)
+
+            # 2. Get the REAL color from the K-Means quantization process for this feature.
+            real_color_hex = self.compress_hex_color(*feature['color'])
+
+            # 3. Create the final style, starting with the real fill color.
+            #    This is the key change to preserve the original image's color palette.
+            final_style = {'fill': real_color_hex}
+
+            # 4. Use the category-based style for enhancements like stroke, but not for the fill.
+            #    This adds context-aware details without destroying the color harmony.
+            if 'stroke' in style_from_category:
+                final_style['stroke'] = style_from_category['stroke']
+            if 'stroke-width' in style_from_category:
+                final_style['stroke-width'] = style_from_category['stroke-width']
+            
+            # --- OPTIMIZATION END ---
+            
+            # Create polygon points string
             points_str = ' '.join([f"{int(pt[0])},{int(pt[1])}" for pt in contour])
             
-            # Create style string
-            style_str = '; '.join([f"{k}: {v}" for k, v in style.items()])
+            # Create style string from our new, corrected style dictionary
+            style_str = '; '.join([f"{k}: {v}" for k, v in final_style.items()])
             
             polygon_svg = f'<polygon points="{points_str}" style="{style_str}"/>'
             svg_parts.append(polygon_svg)
@@ -393,15 +407,15 @@ class EnhancedVisionLanguageTextToSVG:
         return ''.join(svg_parts)
     
     def text_to_svg_enhanced(self, 
-                           prompt: str,
-                           negative_prompt: str, 
-                           num_colors: int = 0,  # 0 for automatic, >0 for manual
-                           width: int = 512, 
-                           height: int = 512,
-                           max_features: int = 100,
-                           min_contour_area: float = 100,
-                           simplification_epsilon: float = 0.02,
-                           **generation_kwargs) -> Tuple[str, Image.Image]:
+                               prompt: str,
+                               negative_prompt: str, 
+                               num_colors: int = 0,  # 0 for automatic, >0 for manual
+                               width: int = 512, 
+                               height: int = 512,
+                               max_features: int = 100,
+                               min_contour_area: float = 100,
+                               simplification_epsilon: float = 0.02,
+                               **generation_kwargs) -> Tuple[str, Image.Image]:
         """
         Enhanced text-to-SVG pipeline with full adaptive color quantization
         
@@ -429,7 +443,7 @@ class EnhancedVisionLanguageTextToSVG:
         # Step 3: Classify segments
         segments_info = self.classify_segments_enhanced(image, quantized_image, palette)
         
-        # Step 4: Create enhanced SVG
+        # Step 4: Create enhanced SVG using the corrected logic
         svg_content = self.create_enhanced_svg(
             image, quantized_image, palette, segments_info,
             width, height, max_features
@@ -442,11 +456,11 @@ if __name__ == "__main__":
     converter = EnhancedVisionLanguageTextToSVG()
 
     svg_content, image = converter.text_to_svg_enhanced(
-        prompt="a lighthouse overlooking the ocean",
-        negative_prompt='',
-        num_colors=0,           
-        max_features=100,        
-        min_contour_area=1.0,   
+        prompt="a beautiful sunset over a rocky mountain range",
+        negative_prompt='text, watermark, low quality',
+        num_colors=0,            # Use automatic color quantization
+        max_features=150,        
+        min_contour_area=50.0,   
         simplification_epsilon=0.009,  
         num_inference_steps=27,
         guidance_scale=20
