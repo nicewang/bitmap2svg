@@ -32,8 +32,11 @@ class EnhancedVisionLanguageTextToSVG:
         self.pipe = self.pipe.to(self.device)
         
         # Initialize CLIP for semantic understanding
-        self.clip_model = CLIPModel.from_pretrained("openai/clip-vit-base-patch32")
-        self.clip_processor = CLIPProcessor.from_pretrained("openai/clip-vit-base-patch32")
+        model_path = "/kaggle/input/clip-vit-base-patch32-model-files/clip-vit-base-patch32/"
+        self.clip_model = CLIPModel.from_pretrained(model_path)
+        self.clip_processor = CLIPProcessor.from_pretrained(model_path)
+        # self.clip_model = CLIPModel.from_pretrained("openai/clip-vit-base-patch32")
+        # self.clip_processor = CLIPProcessor.from_pretrained("openai/clip-vit-base-patch32")
         self.clip_model.to(self.device)
         
         # SVG generation parameters (from C++ logic)
