@@ -13,14 +13,14 @@ from diffusers import AutoencoderKL, UNet2DConditionModel, PNDMScheduler, DDIMSc
 from transformers import CLIPTextModel, CLIPTokenizer
 
 # Differentiable SVG Renderer
-import diffvg
+import pydiffvg
 
 import bitmap2svg
 
 # --- Step 1: Helper function for Differentiable Rendering ---
 def parse_svg_and_render(svg_string: str, width: int, height: int) -> torch.Tensor:
     """
-    Parses the SVG string to extract polygon data and renders it using diffvg.
+    Parses the SVG string to extract polygon data and renders it using pydiffvg.
     NOTE: This is a simplified parser for <polygon> tags.
     output structure might require a more robust parser (e.g., using xml.etree).
     """
@@ -36,7 +36,7 @@ def parse_svg_and_render(svg_string: str, width: int, height: int) -> torch.Tens
         points = torch.tensor(points, dtype=torch.float32).view(-1, 2)
         
         # Parse color
-        # diffvg uses [r, g, b, a] in range [0, 1]
+        # pydiffvg uses [r, g, b, a] in range [0, 1]
         hex_color = fill_str.lstrip('#')
         if len(hex_color) == 3: # Handle compressed hex #RGB
             r, g, b = tuple(int(hex_color[i]*2, 16) for i in range(3))
@@ -45,31 +45,41 @@ def parse_svg_and_render(svg_string: str, width: int, height: int) -> torch.Tens
         
         color = torch.tensor([r / 255.0, g / 255.0, b / 255.0, 1.0])
         
-        path = diffvg.Polygon(points=points, is_closed=True)
+        path = pydiffvg.Polygon(points=points, is_closed=True)
         shapes.append(path)
-        # diffvg requires a shape group for each path with its own fill color
-        shape_groups.append(diffvg.ShapeGroup(shape_ids=torch.tensor([len(shapes) - 1]),
+        # pydiffvg requires a shape group for each path with its own fill color
+        shape_groups.append(pydiffvg.ShapeGroup(shape_ids=torch.tensor([len(shapes) - 1]),
                                              fill_color=color))
 
     # Find the background color from the <rect> tag
     bg_match = re.search(r'<rect .* fill="([^"]+)"/>', svg_string)
-    bg_color = None
+    bg_color_rgb = None # Will store [R, G, B]
     if bg_match:
         hex_color = bg_match.group(1).lstrip('#')
         if len(hex_color) == 3:
             r, g, b = tuple(int(hex_color[i]*2, 16) for i in range(3))
         else:
             r, g, b = tuple(int(hex_color[i:i+2], 16) for i in (0, 2, 4))
-        bg_color = torch.tensor([r / 255.0, g / 255.0, b / 255.0, 1.0])
+        # Store as RGB, not RGBA, to match img[:, :, :3]
+        bg_color_rgb = torch.tensor([r / 255.0, g / 255.0, b / 255.0])
 
 
     # Set up the scene and render
-    scene_args = diffvg.RenderFunction.serialize_scene(width, height, shapes, shape_groups)
-    render = diffvg.RenderFunction.apply
-    img = render(width, height, 2, 2, 0, None, *scene_args) # 2x2 MSAA
+    scene_args = pydiffvg.RenderFunction.serialize_scene(width, height, shapes, shape_groups)
+    render = pydiffvg.RenderFunction.apply
+    img = render(width, height, 1, 1, 0, None, *scene_args) # 1x1 MSAA (no MSAA)
     
     # Premultiplied alpha -> standard alpha
-    img = img[:, :, :3] * img[:, :, 3:4] + (1 - img[:, :, 3:4]) * (bg_color if bg_color is not None else 0.0)
+    # Ensure bg_color_rgb is on the same device as img and has 3 channels for broadcasting
+    if bg_color_rgb is not None:
+        bg_color_rgb = bg_color_rgb.to(img.device) 
+    else:
+        # If bg_color_rgb is None, default to black [0,0,0] on the correct device
+        bg_color_rgb = torch.tensor([0.0, 0.0, 0.0], device=img.device)
+
+    # Now bg_color_rgb has shape (3,) and img[:, :, 3:4] has shape (H, W, 1).
+    # The multiplication will broadcast bg_color_rgb across H and W for each of the 3 channels.
+    img = img[:, :, :3] * img[:, :, 3:4] + (1 - img[:, :, 3:4]) * bg_color_rgb
     
     # Reshape to PyTorch format (C, H, W) and add batch dimension
     img = img.unsqueeze(0).permute(0, 3, 1, 2)
@@ -100,7 +110,7 @@ def sds_loss(latents, vae, scheduler, unet, text_embeddings, t, guidance_scale, 
     # Clamp and scale from [-1, 1] to [0, 255]
     decoded_image_tensor_scaled = (decoded_image_tensor / 2 + 0.5).clamp(0, 1)
     # (B, C, H, W) -> (B, H, W, C)
-    image_np = (decoded_image_tensor_scaled.squeeze(0).permute(1, 2, 0).cpu().numpy() * 255).astype(np.uint8)
+    image_np = (decoded_image_tensor_scaled.detach().squeeze(0).permute(1, 2, 0).cpu().numpy() * 255).astype(np.uint8)
     pil_image = Image.fromarray(image_np)
     
     # 6. Call bitmap2svg to get the SVG
@@ -108,9 +118,9 @@ def sds_loss(latents, vae, scheduler, unet, text_embeddings, t, guidance_scale, 
     
     # 7. Differentiably render the SVG back to a tensor image
     # This tensor will be in the range [0, 1]
-    rendered_svg_tensor = parse_svg_and_render(svg_string, pil_image.width, pil_image.height)
-    # Match the device and range of the VAE output
-    rendered_svg_tensor = rendered_svg_tensor.to(decoded_image_tensor.device)
+    rendered_svg_tensor = parse_svg_and_render(svg_string, int(pil_image.width), int(pil_image.height))
+    # Match the device AND dtype of the VAE output
+    rendered_svg_tensor = rendered_svg_tensor.to(decoded_image_tensor.device, dtype=decoded_image_tensor.dtype)
     rendered_svg_tensor_scaled = rendered_svg_tensor * 2 - 1 # from [0, 1] to [-1, 1]
 
     # 8. Calculate the guidance loss
@@ -124,12 +134,6 @@ def sds_loss(latents, vae, scheduler, unet, text_embeddings, t, guidance_scale, 
     # This is a common practice in guidance techniques
     grad = grad * vector_guidance_scale
     
-    # Can experiment with different ways to scale the gradient
-    # target = latents - grad
-    # loss = F.mse_loss(latents, target) * vector_guidance_scale
-    # loss.backward()
-    
-    # Return the computed gradient
     return grad
 
 # --- Step 2: Main Generation Function with the Optimization Loop ---
@@ -142,7 +146,7 @@ def generate_svg_with_guidance(
     guidance_scale: float = 7.5,
     vector_guidance_scale: float = 5.0,
     guidance_start_step: int = 10, # Start guidance after initial structure forms
-    guidance_end_step: int = 40,   # Stop guidance before the final steps
+    guidance_end_step: int = 40,    # Stop guidance before the final steps
     output_path: str = "output_guided_svg.svg",
     seed: int | None = None
 ):
@@ -152,21 +156,29 @@ def generate_svg_with_guidance(
     if seed is None:
         seed = random.randint(0, 2**32 - 1)
     
-    generator = torch.manual_seed(seed)
+    # Initialize generator on the specified device
+    generator = torch.Generator(device=device).manual_seed(seed)
     print(f"Using seed: {seed}")
 
     # --- A. Load Models ---
     print("Loading models...")
-    vae = AutoencoderKL.from_pretrained(model_id, subfolder="vae").to(device)
+    # It's good practice to load models with torch.float16 if on CUDA to save VRAM
+    if device == "cuda":
+        vae = AutoencoderKL.from_pretrained(model_id, subfolder="vae", torch_dtype=torch.float16).to(device)
+        text_encoder = CLIPTextModel.from_pretrained(model_id, subfolder="text_encoder", torch_dtype=torch.float16).to(device)
+        unet = UNet2DConditionModel.from_pretrained(model_id, subfolder="unet", torch_dtype=torch.float16).to(device)
+    else: # For CPU, usually prefer float32
+        vae = AutoencoderKL.from_pretrained(model_id, subfolder="vae").to(device)
+        text_encoder = CLIPTextModel.from_pretrained(model_id, subfolder="text_encoder").to(device)
+        unet = UNet2DConditionModel.from_pretrained(model_id, subfolder="unet").to(device)
+
     tokenizer = CLIPTokenizer.from_pretrained(model_id, subfolder="tokenizer")
-    text_encoder = CLIPTextModel.from_pretrained(model_id, subfolder="text_encoder").to(device)
-    unet = UNet2DConditionModel.from_pretrained(model_id, subfolder="unet").to(device)
     scheduler = DDIMScheduler.from_pretrained(model_id, subfolder="scheduler")
 
     # --- B. Prepare Inputs ---
     print("Preparing inputs...")
-    height = unet.config.sample_size * vae.config.scale_factor
-    width = unet.config.sample_size * vae.config.scale_factor
+    height = unet.config.sample_size * vae.config.scaling_factor
+    width = unet.config.sample_size * vae.config.scaling_factor
     
     # Text embeddings
     text_input = tokenizer([prompt], padding="max_length", max_length=tokenizer.model_max_length, truncation=True, return_tensors="pt")
@@ -180,9 +192,10 @@ def generate_svg_with_guidance(
 
     # Initial random latents
     latents = torch.randn(
-        (1, unet.config.in_channels, height // vae.config.scale_factor, width // vae.config.scale_factor),
+        (1, unet.config.in_channels, int(height // vae.config.scaling_factor), int(width // vae.config.scaling_factor)),
         generator=generator,
-        device=device
+        device=device,
+        dtype=torch.float16 if device == "cuda" else torch.float32    
     )
     latents = latents * scheduler.init_noise_sigma
     
@@ -192,9 +205,9 @@ def generate_svg_with_guidance(
     
     # Parameters for C++ vectorizer, passed to the guidance loss function
     svg_params = {
-        'num_colors': 12,
+        'num_colors': None,
         'simplification_epsilon_factor': 0.01,
-        'min_contour_area': 15.0,
+        'min_contour_area': 5.0,
         'max_features_to_render': 256 # Limit features during guidance for speed
     }
 
@@ -232,7 +245,8 @@ def generate_svg_with_guidance(
     # Scale and decode the final latents
     latents = 1 / vae.config.scaling_factor * latents
     with torch.no_grad():
-        image_tensor = vae.decode(latents).sample
+        # Removed .float() to avoid dtype mismatch with VAE's half-precision parameters
+        image_tensor = vae.decode(latents).sample    
 
     # Convert to PIL Image
     image_tensor = (image_tensor / 2 + 0.5).clamp(0, 1)
@@ -246,9 +260,9 @@ def generate_svg_with_guidance(
 
     # Perform one final, high-quality vectorization on the result
     final_svg_params = {
-        'num_colors': 16,
+        'num_colors': None,
         'simplification_epsilon_factor': 0.005,
-        'min_contour_area': 5.0,
+        'min_contour_area': 1.0,
         'max_features_to_render': 0 # Unlimited
     }
     final_svg_string = bitmap2svg.bitmap_to_svg(final_image, **final_svg_params)
@@ -283,7 +297,7 @@ if __name__ == '__main__':
     
     # Strength of the vector guidance. Higher values force a more "vector-like" style.
     # Start with a low value and increase.
-    VECTOR_GUIDANCE_SCALE = 8.0 
+    VECTOR_GUIDANCE_SCALE = 8.0    
     
     # When to apply the guidance.
     # Don't start too early (let the main shape form) or end too late (let it refine details).
