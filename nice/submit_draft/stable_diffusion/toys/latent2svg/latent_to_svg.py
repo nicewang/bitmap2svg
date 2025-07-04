@@ -5,6 +5,8 @@ from transformers import CLIPTextModel, CLIPTokenizer
 import numpy as np
 from typing import List, Optional, Union
 
+import logging
+
 class LatentToSVG:
     def __init__(self, latent_dim=4*64*64, device=None):
         self.latent_dim = latent_dim
@@ -72,7 +74,6 @@ class LatentToSVG:
 class CustomStableDiffusionPipeline:
     def __init__(self, model_id):
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
-        print(f"Using device: {self.device}")
         
         self.pipe = StableDiffusionPipeline.from_pretrained(
             model_id,
@@ -182,7 +183,6 @@ class CustomStableDiffusionPipeline:
         
         # Convert intermediate latents to SVG
         svg_codes = []
-        print(f"Converting {len(self.intermediate_latents)} latents to SVG...")
         
         for i, latent in enumerate(self.intermediate_latents):
             try:
@@ -198,10 +198,9 @@ class CustomStableDiffusionPipeline:
                 
                 svg_code = self.svg_generator.params_to_svg(svg_params, width, height)
                 svg_codes.append(svg_code)
-                print(f"Converted latent {i+1}/{len(self.intermediate_latents)}")
                 
             except Exception as e:
-                print(f"Error converting latent {i}: {e}")
+                logging.error(f"Error converting latent {i}: {e}")
                 continue
         
         return svg_codes

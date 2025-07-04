@@ -116,7 +116,7 @@ class EnhancedVisionLanguageTextToSVG:
         pixels = image.reshape(-1, 3).astype(np.float32)
         
         if pixels.shape[0] == 0:
-            print("Error: No samples to process for k-means (image might be empty)")
+            logging.error(f"Error: No samples to process for k-means (image might be empty)")
             return image.astype(np.uint8), [(128, 128, 128)]  # Fallback
         
         # Handle case where we have fewer pixels than requested clusters
@@ -147,7 +147,7 @@ class EnhancedVisionLanguageTextToSVG:
                     pixels, k, None, criteria, attempts, cv2.KMEANS_PP_CENTERS
                 )
             except cv2.error as e:
-                print(f"K-means failed: {e}. Using fallback method.")
+                logging.error(f"K-means failed: {e}. Using fallback method.")
                 # Fallback to simple uniform sampling
                 indices = np.linspace(0, len(unique_colors) - 1, k, dtype=int)
                 centers = unique_colors[indices].astype(np.float32)
@@ -158,7 +158,7 @@ class EnhancedVisionLanguageTextToSVG:
         
         # Handle empty centers (fallback logic from C++)
         if centers.shape[0] == 0:
-            print("Warning: k-means returned 0 centers. Using average color fallback.")
+            logging.warning(f"Warning: k-means returned 0 centers. Using average color fallback.")
             avg_color = np.mean(image, axis=(0, 1))
             centers = avg_color.reshape(1, -1).astype(np.float32)
             labels = np.zeros(pixels.shape[0], dtype=np.int32)
