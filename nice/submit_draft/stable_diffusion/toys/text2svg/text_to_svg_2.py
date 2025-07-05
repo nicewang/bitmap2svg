@@ -1,0 +1,241 @@
+import torch
+import torch.nn.functional as F
+from tqdm.auto import tqdm
+from PIL import Image
+import numpy as np
+import re
+import os
+import random
+
+# Diffusers and Transformers
+from diffusers import AutoencoderKL, UNet2DConditionModel, DDIMScheduler
+from transformers import CLIPTextModel, CLIPTokenizer
+
+# Differentiable SVG Renderer
+import pydiffvg
+
+import bitmap2svg
+
+def parse_svg_and_render(svg_string: str, width: int, height: int, device: str) -> torch.Tensor:
+    """
+    Parses a simplified SVG string and renders it using pydiffvg.
+    """
+    # This parser is simplified. For production, a robust XML parser would be better.
+    polygons = re.findall(r'<polygon points="([^"]+)" fill="([^"]+)"/>', svg_string)
+    
+    shapes = []
+    shape_groups = []
+
+    for points_str, fill_str in polygons:
+        try:
+            points_data = [float(p) for p in points_str.replace(',', ' ').split()]
+            if not points_data or len(points_data) % 2 != 0:
+                continue # Skip malformed points
+            points = torch.tensor(points_data, dtype=torch.float32, device=device).view(-1, 2)
+            
+            hex_color = fill_str.lstrip('#')
+            if len(hex_color) == 3:
+                r, g, b = tuple(int(hex_color[i]*2, 16) for i in range(3))
+            else:
+                r, g, b = tuple(int(hex_color[i:i+2], 16) for i in (0, 2, 4))
+            
+            color = torch.tensor([r / 255.0, g / 255.0, b / 255.0, 1.0], device=device)
+            
+            path = pydiffvg.Polygon(points=points, is_closed=True)
+            shapes.append(path)
+            shape_groups.append(pydiffvg.ShapeGroup(shape_ids=torch.tensor([len(shapes) - 1], device=device),
+                                                     fill_color=color))
+        except (ValueError, IndexError):
+            continue # Skip if parsing fails
+
+    bg_match = re.search(r'<rect .* fill="([^"]+)"/>', svg_string)
+    bg_color_tensor = torch.tensor([0.0, 0.0, 0.0], device=device) # Default to black
+    if bg_match:
+        hex_color = bg_match.group(1).lstrip('#')
+        if len(hex_color) == 3:
+            r, g, b = tuple(int(hex_color[i]*2, 16) for i in range(3))
+        else:
+            r, g, b = tuple(int(hex_color[i:i+2], 16) for i in (0, 2, 4))
+        bg_color_tensor = torch.tensor([r / 255.0, g / 255.0, b / 255.0], device=device)
+
+    if not shapes: # If no polygons were found, return a solid background
+        return bg_color_tensor.view(1, 3, 1, 1).expand(1, 3, height, width)
+
+    # Use pydiffvg to render the scene
+    scene_args = pydiffvg.RenderFunction.serialize_scene(width, height, shapes, shape_groups)
+    render = pydiffvg.RenderFunction.apply
+    img = render(width, height, 2, 2, 0, None, *scene_args) # Use 2x2 MSAA for better quality
+    
+    # Composite with background color
+    img = img[:, :, :3] * img[:, :, 3:4] + (1 - img[:, :, 3:4]) * bg_color_tensor
+    
+    # Reshape to PyTorch format (B, C, H, W)
+    img = img.unsqueeze(0).permute(0, 3, 1, 2)
+    return img
+
+def generate_svg_with_guidance(
+    prompt: str,
+    negative_prompt: str = "",
+    model_id: str = "runwayml/stable-diffusion-v1-5",
+    device: str = "cuda" if torch.cuda.is_available() else "cpu",
+    num_inference_steps: int = 50,
+    guidance_scale: float = 7.5,
+    vector_guidance_scale: float = 1.0, # Start with a smaller, safer value
+    guidance_start_step: int = 5,
+    guidance_end_step: int = 40,
+    output_path: str = "output_guided_svg.svg",
+    seed: int | None = None
+):
+    if seed is None:
+        seed = random.randint(0, 2**32 - 1)
+    
+    generator = torch.Generator(device=device).manual_seed(seed)
+    print(f"Using seed: {seed}")
+
+    # --- Load Models ---
+    print("Loading models...")
+    dtype = torch.float16 if device == "cuda" else torch.float32
+    vae = AutoencoderKL.from_pretrained(model_id, subfolder="vae", torch_dtype=dtype).to(device)
+    text_encoder = CLIPTextModel.from_pretrained(model_id, subfolder="text_encoder", torch_dtype=dtype).to(device)
+    unet = UNet2DConditionModel.from_pretrained(model_id, subfolder="unet", torch_dtype=dtype).to(device)
+    tokenizer = CLIPTokenizer.from_pretrained(model_id, subfolder="tokenizer")
+    scheduler = DDIMScheduler.from_pretrained(model_id, subfolder="scheduler")
+
+    # --- Prepare Inputs ---
+    print("Preparing inputs...")
+    height = 512
+    width = 512
+    
+    text_input = tokenizer([prompt], padding="max_length", max_length=tokenizer.model_max_length, truncation=True, return_tensors="pt")
+    text_embeddings = text_encoder(text_input.input_ids.to(device))[0].to(dtype)
+    
+    uncond_input = tokenizer([negative_prompt], padding="max_length", max_length=tokenizer.model_max_length, return_tensors="pt")
+    uncond_embeddings = text_encoder(uncond_input.input_ids.to(device))[0].to(dtype)
+    
+    text_embeddings = torch.cat([uncond_embeddings, text_embeddings])
+
+    latents = torch.randn(
+        (1, unet.config.in_channels, height // vae.config.scaling_factor, width // vae.config.scaling_factor),
+        generator=generator, device=device, dtype=dtype
+    )
+    latents = latents * scheduler.init_noise_sigma
+    
+    # --- Denoising and Guidance Loop ---
+    print("Starting denoising and guidance loop...")
+    scheduler.set_timesteps(num_inference_steps)
+    
+    svg_params_guidance = {
+        'num_colors': 8, # Fix number of colors for consistency
+        'simplification_epsilon_factor': 0.015,
+        'min_contour_area': 25.0,
+        'max_features_to_render': 128
+    }
+
+    for i, t in enumerate(tqdm(scheduler.timesteps)):
+        # --- Standard Denoising Prediction ---
+        latent_model_input = torch.cat([latents] * 2)
+        latent_model_input = scheduler.scale_model_input(latent_model_input, t)
+        
+        with torch.no_grad():
+            noise_pred = unet(latent_model_input, t, encoder_hidden_states=text_embeddings).sample
+        
+        noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
+        noise_pred_cfg = noise_pred_uncond + guidance_scale * (noise_pred_text - noise_pred_uncond)
+        
+        # --- OPTIMIZED VECTOR GUIDANCE LOGIC ---
+        if guidance_start_step <= i < guidance_end_step:
+            # 1. Predict the "clean" image SD wants to create at this step
+            # We need to detach() here to prevent autograd from trying to go back through the UNet
+            pred_original_sample = scheduler.step(noise_pred_cfg, t, latents.detach()).pred_original_sample
+            
+            # 2. Decode these clean latents into a pixel-space image
+            with torch.no_grad():
+                decoded_image_tensor = vae.decode(1 / vae.config.scaling_factor * pred_original_sample).sample
+            
+            # 3. Vectorize the predicted image
+            # Scale from [-1, 1] to [0, 255] for the C++ library
+            img_to_vectorize_scaled = (decoded_image_tensor / 2 + 0.5).clamp(0, 1)
+            image_np = (img_to_vectorize_scaled.squeeze(0).permute(1, 2, 0).cpu().numpy() * 255).astype(np.uint8)
+            pil_image = Image.fromarray(image_np)
+            svg_string = bitmap2svg.bitmap_to_svg(pil_image, **svg_params_guidance)
+            
+            # 4. Differentiably render the SVG back to an image
+            rendered_svg_tensor = parse_svg_and_render(svg_string, width, height, device)
+            # Scale rendered image from [0, 1] to [-1, 1] to match VAE output space
+            rendered_svg_tensor_scaled = rendered_svg_tensor * 2.0 - 1.0
+
+            # 5. Calculate the guidance loss (how different is the vectorizable version?)
+            loss = F.mse_loss(decoded_image_tensor, rendered_svg_tensor_scaled)
+            
+            # 6. Use the loss to scale the guidance direction.
+            # We are not calculating d(loss)/d(latents).
+            # We are adding a "push" in the direction of the original text guidance,
+            # with the strength of the push determined by our vectorization loss.
+            # The gradient is simply the direction of text guidance.
+            grad = noise_pred_text - noise_pred_uncond
+            
+            # Apply the "push". We scale the gradient by our loss and the guidance scale.
+            # This is a much more stable way to guide the process.
+            noise_pred_cfg = noise_pred_cfg + (grad * loss * vector_guidance_scale)
+
+        # --- Update Latents for Next Step ---
+        latents = scheduler.step(noise_pred_cfg, t, latents).prev_sample
+        
+    # --- Final Image and SVG Generation ---
+    print("Generating final image and SVG...")
+    with torch.no_grad():
+        latents = 1 / vae.config.scaling_factor * latents
+        image_tensor = vae.decode(latents).sample
+    
+    image_tensor = (image_tensor / 2 + 0.5).clamp(0, 1)
+    image_np = (image_tensor.squeeze(0).permute(1, 2, 0).cpu().float().numpy() * 255).astype(np.uint8)
+    final_image = Image.fromarray(image_np)
+    
+    raster_output_path = os.path.splitext(output_path)[0] + ".png"
+    final_image.save(raster_output_path)
+    print(f"Saved final raster image to: {raster_output_path}")
+
+    # Final, high-quality vectorization
+    final_svg_params = {
+        'num_colors': 12,
+        'simplification_epsilon_factor': 0.005,
+        'min_contour_area': 5.0,
+        'max_features_to_render': 0 # Unlimited
+    }
+    final_svg_string = bitmap2svg.bitmap_to_svg(final_image, **final_svg_params)
+    
+    with open(output_path, "w") as f:
+        f.write(final_svg_string)
+    print(f"Saved final SVG to: {output_path}")
+
+    return final_image, final_svg_string
+
+if __name__ == '__main__':
+    # --- OPTIMIZED PARAMETERS ---
+    
+    # 1. The more vector-friendly prompt
+    PROMPT = "vector illustration of a gray wool coat with a faux fur collar, flat design, solid colors, minimalist, clean lines"
+    NEGATIVE_PROMPT = "photo, realistic, 3d, noisy, texture, blurry, shadow, gradient"
+
+    NUM_STEPS = 50
+
+    # 2. Start with a MUCH lower guidance scale
+    VECTOR_GUIDANCE_SCALE = 1.5 
+
+    GUIDANCE_START = int(NUM_STEPS * 0.1) # e.g., step 5
+    GUIDANCE_END = int(NUM_STEPS * 0.8)   # e.g., step 40
+
+    DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+    
+    img, svg = generate_svg_with_guidance(
+        prompt=PROMPT,
+        negative_prompt=NEGATIVE_PROMPT,
+        device=DEVICE,
+        num_inference_steps=NUM_STEPS,
+        guidance_scale=7.5,
+        vector_guidance_scale=VECTOR_GUIDANCE_SCALE,
+        guidance_start_step=GUIDANCE_START,
+        guidance_end_step=GUIDANCE_END,
+        output_path="out_optimized.svg",
+        seed=42
+    )
