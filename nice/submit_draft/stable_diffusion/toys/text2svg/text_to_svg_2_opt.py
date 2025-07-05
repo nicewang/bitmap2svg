@@ -1,10 +1,12 @@
+import os
+os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
+
 import torch
 import torch.nn.functional as F
 from tqdm.auto import tqdm
 from PIL import Image
 import numpy as np
 import re
-import os
 import random
 import gc # Garbage Collector interface
 
@@ -124,10 +126,12 @@ def generate_svg_with_guidance(
     text_input = tokenizer([prompt], padding="max_length", max_length=tokenizer.model_max_length, truncation=True, return_tensors="pt")
     with torch.no_grad():
         text_embeddings = text_encoder(text_input.input_ids.to(device))[0]
+    torch.cuda.empty_cache()
     
     uncond_input = tokenizer([negative_prompt], padding="max_length", max_length=tokenizer.model_max_length, return_tensors="pt")
     with torch.no_grad():
         uncond_embeddings = text_encoder(uncond_input.input_ids.to(device))[0]
+    torch.cuda.empty_cache()
     
     text_encoder.to("cpu") # Move back to CPU immediately
     gc.collect()
@@ -161,6 +165,7 @@ def generate_svg_with_guidance(
         
         with torch.no_grad():
             noise_pred = unet(latent_model_input, t, encoder_hidden_states=text_embeddings).sample
+        torch.cuda.empty_cache()
         
         noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
         noise_pred_cfg = noise_pred_uncond + guidance_scale * (noise_pred_text - noise_pred_uncond)
@@ -173,7 +178,7 @@ def generate_svg_with_guidance(
                 
                 # --- Memory Optimization: Decode on CPU ---
                 # Move VAE to CPU to decode if still running out of memory
-                # vae.to("cpu") 
+                vae.to("cpu") 
                 # decoded_image_tensor = vae.decode(1 / vae.config.scaling_factor * pred_original_sample.to("cpu")).sample.to(device)
                 # For now, we try decoding on GPU as it's faster
                 decoded_image_tensor = vae.decode(1 / vae.config.scaling_factor * pred_original_sample).sample
@@ -204,6 +209,7 @@ def generate_svg_with_guidance(
 
                 # --- Memory Optimization: Clean up temporary tensors ---
                 del pred_original_sample, decoded_image_tensor, img_to_vectorize_scaled, image_np, pil_image, rendered_svg_tensor, rendered_svg_tensor_scaled, grad
+            torch.cuda.empty_cache()
         
         latents = scheduler.step(noise_pred_cfg, t, latents).prev_sample
         
@@ -217,6 +223,7 @@ def generate_svg_with_guidance(
     with torch.no_grad():
         latents = 1 / vae.config.scaling_factor * latents
         image_tensor = vae.decode(latents).sample
+    torch.cuda.empty_cache()
     
     image_tensor = (image_tensor / 2 + 0.5).clamp(0, 1)
     image_np = (image_tensor.squeeze(0).permute(1, 2, 0).cpu().float().numpy() * 255).astype(np.uint8)
