@@ -8,6 +8,8 @@ import os
 import random
 import gc
 
+import kagglehub
+
 # 1. Import accelerate
 import accelerate
 
@@ -22,6 +24,8 @@ from transformers import CLIPTextModel, CLIPTokenizer
 import pydiffvg
 
 import bitmap2svg
+
+stable_diffusion_path = kagglehub.model_download("stabilityai/stable-diffusion-v2/pytorch/1/1")
 
 def parse_svg_and_render(svg_string: str, width: int, height: int, device: str) -> torch.Tensor:
     polygons = re.findall(r'<polygon points="([^"]+)" fill="([^"]+)"/>', svg_string)
@@ -81,6 +85,9 @@ def generate_svg_with_guidance(
     enable_sequential_cpu_offload: bool = True,
     low_vram_shift_to_cpu: bool = True
 ):
+    
+    model_id = stable_diffusion_path
+
     if seed is None:
         seed = random.randint(0, 2**32 - 1)
     
@@ -355,7 +362,7 @@ if __name__ == '__main__':
     PROMPT = "vector illustration of a gray wool coat with a faux fur collar, flat design, solid colors, minimalist, clean lines"
     NEGATIVE_PROMPT = "photo, realistic, 3d, noisy, texture, blurry, shadow, gradient, complex details"
 
-    NUM_STEPS = 40  
+    NUM_STEPS = 27  
     VECTOR_GUIDANCE_SCALE = 1.0  
     GUIDANCE_START = int(NUM_STEPS * 0.15)  
     GUIDANCE_END = int(NUM_STEPS * 0.75)    
@@ -368,7 +375,7 @@ if __name__ == '__main__':
         vector_guidance_scale=VECTOR_GUIDANCE_SCALE,
         guidance_start_step=GUIDANCE_START,
         guidance_end_step=GUIDANCE_END,
-        guidance_resolution=192,  
+        guidance_resolution=256,  
         guidance_interval=3,      
         output_path="out_optimized.svg",
         seed=42,
