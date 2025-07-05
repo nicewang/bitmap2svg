@@ -80,7 +80,7 @@ def generate_svg_with_guidance(
     device: str = "cuda" if torch.cuda.is_available() else "cpu",
     num_inference_steps: int = 50,
     guidance_scale: float = 7.5,
-    vector_guidance_scale: float = 1.0, # Start with a smaller, safer value
+    vector_guidance_scale: float = 1.0,
     guidance_start_step: int = 5,
     guidance_end_step: int = 40,
     output_path: str = "output_guided_svg.svg",
@@ -114,10 +114,15 @@ def generate_svg_with_guidance(
     
     text_embeddings = torch.cat([uncond_embeddings, text_embeddings])
 
+    # Explicitly cast the calculated latent dimensions to integers before passing to torch.randn
+    latent_height = int(height // vae.config.scaling_factor)
+    latent_width = int(width // vae.config.scaling_factor)
+
     latents = torch.randn(
-        (1, unet.config.in_channels, height // vae.config.scaling_factor, width // vae.config.scaling_factor),
+        (1, unet.config.in_channels, latent_height, latent_width), # Use the integer dimensions
         generator=generator, device=device, dtype=dtype
     )
+    
     latents = latents * scheduler.init_noise_sigma
     
     # --- Denoising and Guidance Loop ---
@@ -125,7 +130,7 @@ def generate_svg_with_guidance(
     scheduler.set_timesteps(num_inference_steps)
     
     svg_params_guidance = {
-        'num_colors': 8, # Fix number of colors for consistency
+        'num_colors': 8,
         'simplification_epsilon_factor': 0.015,
         'min_contour_area': 25.0,
         'max_features_to_render': 128
@@ -144,39 +149,31 @@ def generate_svg_with_guidance(
         
         # --- OPTIMIZED VECTOR GUIDANCE LOGIC ---
         if guidance_start_step <= i < guidance_end_step:
-            # 1. Predict the "clean" image SD wants to create at this step
-            # We need to detach() here to prevent autograd from trying to go back through the UNet
-            pred_original_sample = scheduler.step(noise_pred_cfg, t, latents.detach()).pred_original_sample
-            
-            # 2. Decode these clean latents into a pixel-space image
-            with torch.no_grad():
+            with torch.no_grad(): # Entire guidance block can be in no_grad for calculation, except for the latents update
+                # 1. Predict the "clean" image SD wants to create at this step
+                pred_original_sample = scheduler.step(noise_pred_cfg, t, latents).pred_original_sample
+                
+                # 2. Decode these clean latents into a pixel-space image
                 decoded_image_tensor = vae.decode(1 / vae.config.scaling_factor * pred_original_sample).sample
-            
-            # 3. Vectorize the predicted image
-            # Scale from [-1, 1] to [0, 255] for the C++ library
-            img_to_vectorize_scaled = (decoded_image_tensor / 2 + 0.5).clamp(0, 1)
-            image_np = (img_to_vectorize_scaled.squeeze(0).permute(1, 2, 0).cpu().numpy() * 255).astype(np.uint8)
-            pil_image = Image.fromarray(image_np)
-            svg_string = bitmap2svg.bitmap_to_svg(pil_image, **svg_params_guidance)
-            
-            # 4. Differentiably render the SVG back to an image
-            rendered_svg_tensor = parse_svg_and_render(svg_string, width, height, device)
-            # Scale rendered image from [0, 1] to [-1, 1] to match VAE output space
-            rendered_svg_tensor_scaled = rendered_svg_tensor * 2.0 - 1.0
+                
+                # 3. Vectorize the predicted image
+                img_to_vectorize_scaled = (decoded_image_tensor / 2 + 0.5).clamp(0, 1)
+                image_np = (img_to_vectorize_scaled.squeeze(0).permute(1, 2, 0).cpu().float().numpy() * 255).astype(np.uint8)
+                pil_image = Image.fromarray(image_np)
+                svg_string = bitmap2svg.bitmap_to_svg(pil_image, **svg_params_guidance)
+                
+                # 4. Differentiably render the SVG back to an image
+                rendered_svg_tensor = parse_svg_and_render(svg_string, width, height, device)
+                rendered_svg_tensor_scaled = rendered_svg_tensor * 2.0 - 1.0
 
-            # 5. Calculate the guidance loss (how different is the vectorizable version?)
-            loss = F.mse_loss(decoded_image_tensor, rendered_svg_tensor_scaled)
-            
-            # 6. Use the loss to scale the guidance direction.
-            # We are not calculating d(loss)/d(latents).
-            # We are adding a "push" in the direction of the original text guidance,
-            # with the strength of the push determined by our vectorization loss.
-            # The gradient is simply the direction of text guidance.
-            grad = noise_pred_text - noise_pred_uncond
-            
-            # Apply the "push". We scale the gradient by our loss and the guidance scale.
-            # This is a much more stable way to guide the process.
-            noise_pred_cfg = noise_pred_cfg + (grad * loss * vector_guidance_scale)
+                # 5. Calculate the guidance loss
+                loss = F.mse_loss(decoded_image_tensor, rendered_svg_tensor_scaled)
+                
+                # 6. Calculate the guidance "push"
+                grad = noise_pred_text - noise_pred_uncond
+                
+                # Apply the scaled "push" to the noise prediction
+                noise_pred_cfg = noise_pred_cfg + (grad * loss * vector_guidance_scale)
 
         # --- Update Latents for Next Step ---
         latents = scheduler.step(noise_pred_cfg, t, latents).prev_sample
@@ -195,12 +192,11 @@ def generate_svg_with_guidance(
     final_image.save(raster_output_path)
     print(f"Saved final raster image to: {raster_output_path}")
 
-    # Final, high-quality vectorization
     final_svg_params = {
         'num_colors': 12,
         'simplification_epsilon_factor': 0.005,
         'min_contour_area': 5.0,
-        'max_features_to_render': 0 # Unlimited
+        'max_features_to_render': 0 
     }
     final_svg_string = bitmap2svg.bitmap_to_svg(final_image, **final_svg_params)
     
