@@ -1,2 +1,2 @@
 # Original Paper
-[**paper**](CLIPASSO.pdf)
+[**paper**](CLIPasso.pdf)
