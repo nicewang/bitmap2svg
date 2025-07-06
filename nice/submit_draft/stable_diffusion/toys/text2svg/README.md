@@ -7,5 +7,5 @@
     - runable: 2_opt_3
 
 ### Paper
-* [CLIPasso](../../paper/CLIPasso/)
-* [VectorFusion](../../paper/VectorFusion/)
+* [CLIPasso](../../../../paper/CLIPasso/)
+* [VectorFusion](../../../../paper/VectorFusion/)
