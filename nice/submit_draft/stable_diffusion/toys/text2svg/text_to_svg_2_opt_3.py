@@ -25,6 +25,8 @@ import pydiffvg
 
 import bitmap2svg
 
+import logging
+
 stable_diffusion_path = kagglehub.model_download("stabilityai/stable-diffusion-v2/pytorch/1/1")
 
 def parse_svg_and_render(svg_string: str, width: int, height: int, device: str) -> torch.Tensor:
@@ -92,7 +94,7 @@ def generate_svg_with_guidance(
         seed = random.randint(0, 2**32 - 1)
     
     generator = torch.Generator(device=device).manual_seed(seed)
-    print(f"Using seed: {seed}. Main device: {device}.")
+    # print(f"Using seed: {seed}. Main device: {device}.")
 
     gc.collect()
     torch.cuda.empty_cache()
@@ -104,7 +106,7 @@ def generate_svg_with_guidance(
     torch.cuda.set_per_process_memory_fraction(0.95)  
 
     # --- Load Models with Optimized Memory Management ---
-    print("Loading models with optimized memory management...")
+    # print("Loading models with optimized memory management...")
     dtype = torch.float16 if use_half_precision else torch.float32
     
     loading_kwargs = {
@@ -121,7 +123,7 @@ def generate_svg_with_guidance(
         text_encoder = CLIPTextModel.from_pretrained(model_id, subfolder="text_encoder", **loading_kwargs)
         unet = UNet2DConditionModel.from_pretrained(model_id, subfolder="unet", **loading_kwargs)
     except Exception as e:
-        print(f"Failed to load with optimized settings, falling back to default: {e}")
+        # print(f"Failed to load with optimized settings, falling back to default: {e}")
         vae = AutoencoderKL.from_pretrained(model_id, subfolder="vae", torch_dtype=dtype)
         text_encoder = CLIPTextModel.from_pretrained(model_id, subfolder="text_encoder", torch_dtype=dtype)
         unet = UNet2DConditionModel.from_pretrained(model_id, subfolder="unet", torch_dtype=dtype)
@@ -133,17 +135,18 @@ def generate_svg_with_guidance(
         try:
             if hasattr(unet, 'enable_attention_slicing'):
                 unet.enable_attention_slicing(1)  
-                print("Attention slicing enabled for UNet.")
+                # print("Attention slicing enabled for UNet.")
             elif hasattr(unet, 'set_attention_slice'):
                 unet.set_attention_slice(1)
-                print("Attention slice set for UNet.")
-            else:
-                print("Attention slicing not available for this UNet version.")
+                # print("Attention slice set for UNet.")
+            # else:
+            #     print("Attention slicing not available for this UNet version.")
         except Exception as e:
-            print(f"Could not enable attention slicing: {e}")
+            # print(f"Could not enable attention slicing: {e}")
+            logging.error(f"Could not enable attention slicing: {e}")
     
     if enable_sequential_cpu_offload:
-        print("Enabling sequential CPU offload for all models...")
+        # print("Enabling sequential CPU offload for all models...")
         
         try:
             text_encoder = text_encoder.to("cpu")
@@ -154,16 +157,16 @@ def generate_svg_with_guidance(
             vae = accelerate.cpu_offload(vae, execution_device=device)
             text_encoder = accelerate.cpu_offload(text_encoder, execution_device=device)
             
-            print("Sequential CPU offload enabled successfully.")
+            # print("Sequential CPU offload enabled successfully.")
         except Exception as e:
-            print(f"CPU offload failed, using manual device management: {e}")
+            # print(f"CPU offload failed, using manual device management: {e}")
             text_encoder = text_encoder.to("cpu")
             unet = unet.to("cpu")
             vae = vae.to("cpu")
             enable_sequential_cpu_offload = False
             low_vram_shift_to_cpu = True
     else:
-        print("Using manual device management...")
+        # print("Using manual device management...")
         text_encoder = text_encoder.to("cpu")
         unet = unet.to("cpu")
         vae = vae.to("cpu")
@@ -171,23 +174,25 @@ def generate_svg_with_guidance(
     try:
         if hasattr(unet, 'enable_xformers_memory_efficient_attention'):
             unet.enable_xformers_memory_efficient_attention()
-            print("xFormers enabled for UNet.")
-        else:
-            print("xFormers not available for this UNet version.")
+            # print("xFormers enabled for UNet.")
+        # else:
+            # print("xFormers not available for this UNet version.")
     except (ImportError, AttributeError, Exception) as e:
-        print(f"Could not enable xFormers: {e}")
+        # print(f"Could not enable xFormers: {e}")
+        logging.error(f"Could not enable xFormers: {e}")
         
     try:
         if hasattr(unet, 'enable_gradient_checkpointing'):
             unet.enable_gradient_checkpointing()
-            print("Gradient checkpointing enabled for UNet.")
+            # print("Gradient checkpointing enabled for UNet.")
     except Exception as e:
-        print(f"Could not enable gradient checkpointing: {e}")
+        # print(f"Could not enable gradient checkpointing: {e}")
+        logging.error(f"Could not enable gradient checkpointing: {e}")
 
     gc.collect()
     torch.cuda.empty_cache()
 
-    print("Preparing inputs with memory optimization...")
+    # print("Preparing inputs with memory optimization...")
     height = 512
     width = 512
     
@@ -240,7 +245,7 @@ def generate_svg_with_guidance(
     )
     latents = latents * scheduler.init_noise_sigma
     
-    print("Starting denoising and guidance loop...")
+    # print("Starting denoising and guidance loop...")
     scheduler.set_timesteps(num_inference_steps)
     
     svg_params_guidance = {
@@ -322,7 +327,7 @@ def generate_svg_with_guidance(
             gc.collect()
             torch.cuda.empty_cache()
 
-    print("Generating final image and SVG...")
+    # print("Generating final image and SVG...")
     with torch.no_grad():
         if low_vram_shift_to_cpu and not enable_sequential_cpu_offload:
             vae = vae.to(device)
@@ -340,9 +345,9 @@ def generate_svg_with_guidance(
     image_np = (image_tensor.squeeze(0).permute(1, 2, 0).float().numpy() * 255).astype(np.uint8)
     final_image = Image.fromarray(image_np)
     
-    raster_output_path = os.path.splitext(output_path)[0] + ".png"
-    final_image.save(raster_output_path)
-    print(f"Saved final raster image to: {raster_output_path}")
+    # raster_output_path = os.path.splitext(output_path)[0] + ".png"
+    # final_image.save(raster_output_path)
+    # print(f"Saved final raster image to: {raster_output_path}")
 
     final_svg_params = {
         'num_colors': 10,  
@@ -352,9 +357,9 @@ def generate_svg_with_guidance(
     }
     final_svg_string = bitmap2svg.bitmap_to_svg(final_image, **final_svg_params)
     
-    with open(output_path, "w") as f:
-        f.write(final_svg_string)
-    print(f"Saved final SVG to: {output_path}")
+    # with open(output_path, "w") as f:
+    #     f.write(final_svg_string)
+    # print(f"Saved final SVG to: {output_path}")
 
     return final_image, final_svg_string
 
