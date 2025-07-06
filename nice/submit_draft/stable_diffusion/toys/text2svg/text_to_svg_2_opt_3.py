@@ -27,7 +27,8 @@ import bitmap2svg
 
 import logging
 
-stable_diffusion_path = kagglehub.model_download("stabilityai/stable-diffusion-v2/pytorch/1/1")
+# stable_diffusion_path = kagglehub.model_download("stabilityai/stable-diffusion-v2/pytorch/1/1")
+stable_diffusion_path = kagglehub.model_download("arishihu/stable-diffusion-v1-5/pytorch/default/2")
 
 def parse_svg_and_render(svg_string: str, width: int, height: int, device: str) -> torch.Tensor:
     polygons = re.findall(r'<polygon points="([^"]+)" fill="([^"]+)"/>', svg_string)
@@ -350,10 +351,10 @@ def generate_svg_with_guidance(
     # print(f"Saved final raster image to: {raster_output_path}")
 
     final_svg_params = {
-        'num_colors': 10,  
-        'simplification_epsilon_factor': 0.008,  
-        'min_contour_area': 8.0,  
-        'max_features_to_render': 0 
+        'num_colors': 24,  # Increase from 10 to 24 to capture more color nuance and texture
+        'simplification_epsilon_factor': 0.002, # Decrease from 0.008 to preserve fine details in shapes
+        'min_contour_area': 1.0,   # Decrease from 8.0 to keep smaller, important details
+        'max_features_to_render': 0 # Unlimited
     }
     final_svg_string = bitmap2svg.bitmap_to_svg(final_image, **final_svg_params)
     
@@ -368,9 +369,13 @@ if __name__ == '__main__':
     NEGATIVE_PROMPT = "photo, realistic, 3d, noisy, texture, blurry, shadow, gradient, complex details"
 
     NUM_STEPS = 27  
-    VECTOR_GUIDANCE_SCALE = 1.0  
-    GUIDANCE_START = int(NUM_STEPS * 0.15)  
-    GUIDANCE_END = int(NUM_STEPS * 0.75)    
+    # VECTOR_GUIDANCE_SCALE = 1.0  
+    # GUIDANCE_START = int(NUM_STEPS * 0.15)  
+    # GUIDANCE_END = int(NUM_STEPS * 0.75)    
+
+    VECTOR_GUIDANCE_SCALE = 2.0  # Increase from 1.0 to force a more stylized output
+    GUIDANCE_START = int(NUM_STEPS * 0.1) # Start guidance a bit earlier
+    GUIDANCE_END = int(NUM_STEPS * 0.8)   # End guidance a bit later
     
     img, svg = generate_svg_with_guidance(
         prompt=PROMPT,
