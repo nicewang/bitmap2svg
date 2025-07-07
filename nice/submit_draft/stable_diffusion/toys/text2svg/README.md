@@ -7,5 +7,12 @@
     - runable: 2_opt_3
 
 ### Papers
-* [CLIPasso](../../../../paper/CLIPasso/)
-* [VectorFusion](../../../../paper/VectorFusion/)
+* Directly Optimize Vector Params (Update Vector Params)
+    * [CLIPasso](../../../../paper/CLIPasso/)
+    * [VectorFusion](../../../../paper/VectorFusion/)
+    * [SVGDreamer](../../../../paper/SVGDreamer/)
+    * [livesketch](../../../../paper/livesketch/)
+    * [DiffSketcher](../../../../paper/DiffSketcher/)
+* Dependencies:
+    * [DiffVG](../../../../paper/DiffVG/)
+    * [Bézier Splatting for Fast and Differentiable Vector Graphics Rendering](../../../../paper/bezier_splatting_for_fast_and_differentiable_vector_graphics_rendering/)

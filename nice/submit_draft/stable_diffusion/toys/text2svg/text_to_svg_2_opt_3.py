@@ -89,7 +89,7 @@ def generate_svg_with_guidance(
     low_vram_shift_to_cpu: bool = True
 ):
     
-    model_id = stable_diffusion_path
+    # model_id = stable_diffusion_path
 
     if seed is None:
         seed = random.randint(0, 2**32 - 1)
@@ -250,7 +250,7 @@ def generate_svg_with_guidance(
     scheduler.set_timesteps(num_inference_steps)
     
     svg_params_guidance = {
-        'num_colors': 6,  
+        'num_colors': None,  
         'simplification_epsilon_factor': 0.02,  
         'min_contour_area': (guidance_resolution/512)**2 * 30.0,  
         'max_features_to_render': 64  
@@ -351,7 +351,7 @@ def generate_svg_with_guidance(
     # print(f"Saved final raster image to: {raster_output_path}")
 
     final_svg_params = {
-        'num_colors': 24,  # Increase from 10 to 24 to capture more color nuance and texture
+        'num_colors': None,  # Increase from 10 to 24 to capture more color nuance and texture
         'simplification_epsilon_factor': 0.002, # Decrease from 0.008 to preserve fine details in shapes
         'min_contour_area': 1.0,   # Decrease from 8.0 to keep smaller, important details
         'max_features_to_render': 0 # Unlimited

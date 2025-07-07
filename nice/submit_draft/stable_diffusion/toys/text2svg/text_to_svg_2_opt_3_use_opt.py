@@ -13,6 +13,64 @@ def gen_bitmap(self, description):
         'houndstooth', 'argyle', 'paisley', 'floral pattern'
     ]
     
+    PROMPT = (
+        f"clean classic vector illustration of {description}, "
+        "flat design, solid colors only, minimalist, simple shapes, "
+        "geometric style, flat color blocks, minimal details, no complex details"
+    )
+    # self.prompt_suffix = "with flat color blocks, beautiful, minimal details, solid colors only"
+    # self.negative_prompt = "lines, framing, hatching, background, textures, patterns, details, outlines"
+    # Standard negative prompt (carefully controlled length)
+    NEGATIVE_PROMPT = (
+        "photo, realistic, 3d, noisy, textures, blurry, shadow, "
+        "lines, framing, hatching, background, patterns, outlines, "
+        "gradient, complex details, patterns, stripes, dots, "
+        "repetitive elements, small details, intricate designs, "
+        "busy composition, cluttered"
+    )
+    
+    # Generation parameters
+    NUM_STEPS = 27
+    VECTOR_GUIDANCE_SCALE = 5.0  # Force simplification
+    # GUIDANCE_START = int(NUM_STEPS * 0.05)  # Start guidance earlier
+    # GUIDANCE_END = int(NUM_STEPS * 0.85)    # End guidance later
+    GUIDANCE_START = 0
+    GUIDANCE_END = NUM_STEPS
+    
+    # Call the generation function with optimized parameters
+    img, svg = generate_svg_with_guidance(
+        prompt=PROMPT,
+        negative_prompt=NEGATIVE_PROMPT,
+        num_inference_steps=NUM_STEPS,
+        guidance_scale=25.0,  # Slightly increased CFG scale
+        vector_guidance_scale=VECTOR_GUIDANCE_SCALE,
+        guidance_start_step=GUIDANCE_START,
+        guidance_end_step=GUIDANCE_END,
+        guidance_resolution=256,
+        guidance_interval=1,  # Reduce interval to increase guidance frequency
+        output_path="out_optimized.svg",
+        seed=42,
+        enable_attention_slicing=True,
+        enable_cpu_offload=True,
+        use_half_precision=True,
+        enable_sequential_cpu_offload=True,
+        low_vram_shift_to_cpu=True
+    )
+    return svg, img
+
+def gen_bitmap(self, description):
+    """
+    Generate bitmap and SVG from text description with optimized prompt management
+    to avoid CLIP tokenizer sequence length limits (max 77 tokens).
+    """
+    
+    # Pattern keywords that might generate repetitive elements
+    pattern_keywords = [
+        'checkered', 'striped', 'plaid', 'polka dot', 'mesh', 'grid',
+        'fabric', 'textile', 'woven', 'knitted', 'corduroy', 'tweed',
+        'houndstooth', 'argyle', 'paisley', 'floral pattern'
+    ]
+    
     # Clothing keywords for fashion-specific prompts
     clothing_keywords = ['pants', 'overalls', 'shirt', 'dress', 'jacket']
     
