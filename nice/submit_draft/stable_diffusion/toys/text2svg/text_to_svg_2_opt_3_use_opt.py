@@ -1,77 +1,84 @@
 from text_to_svg_2_opt_3 import generate_svg_with_guidance
 
 def gen_bitmap(self, description):
-    # Approach 1: Enhanced simplification and geometric prompts
-    PROMPT = (
-        f"simple vector illustration of {description}, "
-        "geometric shapes, bold solid colors, flat design, "
-        "minimalist style, clean lines, no patterns, "
-        "no textures, no repetitive elements, "
-        "simple composition, large shapes only"
-    )
+    """
+    Generate bitmap and SVG from text description with optimized prompt management
+    to avoid CLIP tokenizer sequence length limits (max 77 tokens).
+    """
     
-    NEGATIVE_PROMPT = (
-        "photo, realistic, 3d, noisy, texture, blurry, shadow, gradient, "
-        "complex details, patterns, stripes, dots, checkerboard, "
-        "repetitive elements, small details, intricate designs, "
-        "busy composition, cluttered, dense patterns, "
-        "fabric texture, wood grain, mesh, grid patterns, "
-        "crosshatch, stippling, fine lines, ornate details"
-    )
-    
-    # Approach 2: Dynamic prompt generation based on description type
-    # Detect keywords that might generate repetitive patterns
+    # Pattern keywords that might generate repetitive elements
     pattern_keywords = [
         'checkered', 'striped', 'plaid', 'polka dot', 'mesh', 'grid',
         'fabric', 'textile', 'woven', 'knitted', 'corduroy', 'tweed',
         'houndstooth', 'argyle', 'paisley', 'floral pattern'
     ]
     
-    has_pattern = any(keyword in description.lower() for keyword in pattern_keywords)
+    # Clothing keywords for fashion-specific prompts
+    clothing_keywords = ['pants', 'overalls', 'shirt', 'dress', 'jacket']
     
+    # Check for pattern and clothing keywords
+    has_pattern = any(keyword in description.lower() for keyword in pattern_keywords)
+    has_clothing = any(keyword in description.lower() for keyword in clothing_keywords)
+    
+    # Generate optimized prompts based on content type
     if has_pattern:
-        # For pattern-containing descriptions, force simplification
+        # For pattern-containing descriptions, force extreme simplification
         PROMPT = (
-            f"extremely simple vector icon of {description}, "
-            "solid colors only, no patterns, no textures, "
-            "geometric abstraction, logo style, "
-            "flat design, minimal details, "
-            "simplified representation"
+            f"simple vector icon of {description}, "
+            "solid colors only, flat design, geometric abstraction, "
+            "logo style, minimal details, no patterns, no textures"
         )
         
-        NEGATIVE_PROMPT += (
-            ", actual patterns, real textures, detailed fabric, "
-            "realistic clothing details, complex surfaces"
+        # Specialized negative prompt for pattern content (avoid token limit)
+        NEGATIVE_PROMPT = (
+            "realistic textures, actual patterns, fabric details, "
+            "complex surfaces, photo, 3d, gradient, shadow, "
+            "intricate designs, busy composition, repetitive elements"
         )
-    else:
-        # For regular descriptions, use standard simplified prompt
-        PROMPT = (
-            f"clean vector illustration of {description}, "
-            "flat design, solid colors, minimalist, "
-            "simple shapes, no complex details, "
-            "geometric style, bold colors"
-        )
-    
-    # Approach 3: Content-type specific prompts
-    clothing_keywords = ['pants', 'overalls', 'shirt', 'dress', 'jacket']
-    if any(keyword in description.lower() for keyword in clothing_keywords):
+        
+    elif has_clothing:
+        # For clothing items, use fashion illustration style
         PROMPT = (
             f"fashion illustration of {description}, "
-            "flat lay style, solid colors, no fabric textures, "
-            "clean silhouette, minimalist fashion drawing, "
-            "vector art, simple color blocks"
+            "flat lay style, solid colors, clean silhouette, "
+            "minimalist fashion drawing, vector art, simple color blocks"
+        )
+        
+        # Fashion-specific negative prompt
+        NEGATIVE_PROMPT = (
+            "photo, realistic, 3d, fabric texture, wrinkles, "
+            "complex details, patterns, shadow, gradient, "
+            "busy design, cluttered, intricate clothing details"
+        )
+        
+    else:
+        # Standard approach for regular descriptions
+        PROMPT = (
+            f"clean vector illustration of {description}, "
+            "flat design, solid colors, minimalist, simple shapes, "
+            "geometric style, bold colors, no complex details"
+        )
+        
+        # Standard negative prompt (carefully controlled length)
+        NEGATIVE_PROMPT = (
+            "photo, realistic, 3d, noisy, texture, blurry, shadow, "
+            "gradient, complex details, patterns, stripes, dots, "
+            "repetitive elements, small details, intricate designs, "
+            "busy composition, cluttered"
         )
     
+    # Generation parameters
     NUM_STEPS = 27
-    VECTOR_GUIDANCE_SCALE = 2.5  # Further increase to force simplification
+    VECTOR_GUIDANCE_SCALE = 2.5  # Force simplification
     GUIDANCE_START = int(NUM_STEPS * 0.05)  # Start guidance earlier
     GUIDANCE_END = int(NUM_STEPS * 0.85)    # End guidance later
     
+    # Call the generation function with optimized parameters
     img, svg = generate_svg_with_guidance(
         prompt=PROMPT,
         negative_prompt=NEGATIVE_PROMPT,
         num_inference_steps=NUM_STEPS,
-        guidance_scale=8.0,  # 略微增加CFG scale
+        guidance_scale=8.0,  # Slightly increased CFG scale
         vector_guidance_scale=VECTOR_GUIDANCE_SCALE,
         guidance_start_step=GUIDANCE_START,
         guidance_end_step=GUIDANCE_END,
@@ -85,6 +92,7 @@ def gen_bitmap(self, description):
         enable_sequential_cpu_offload=True,
         low_vram_shift_to_cpu=True
     )
+    
     return svg, img
 
 # Additional utility function: Intelligently adjust prompt based on description
