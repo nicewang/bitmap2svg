@@ -214,6 +214,7 @@ def generate_svg_with_guidance(
                 
                 param_search_space = {
                     'num_colors': lambda: random.randint(12, 32),
+                    # 'num_colors': None,
                     'simplification_epsilon_factor': lambda: random.uniform(0.001, 0.015),
                     'min_contour_area': lambda: (guidance_resolution/512)**2 * random.uniform(5.0, 40.0),
                     'max_features_to_render': lambda: random.randint(64, 128)
@@ -262,9 +263,9 @@ def generate_svg_with_guidance(
     final_image = Image.fromarray(image_np)
     
     final_svg_params = {
-        'num_colors': 24,
+        'num_colors': None,
         'simplification_epsilon_factor': 0.002,
-        'min_contour_area': 2.0,
+        'min_contour_area': 1.0,
         'max_features_to_render': 0
     }
     final_svg_string = bitmap2svg.bitmap_to_svg(final_image, **final_svg_params)
@@ -275,7 +276,7 @@ def gen_bitmap(description, seed_val=42):
     PROMPT = "vector illustration of " + f'{description}' +", flat design, solid colors, minimalist, clean lines"
     NEGATIVE_PROMPT = "photo, realistic, 3d, noisy, texture, blurry, shadow, gradient, complex details, photorealistic"
 
-    NUM_STEPS = 27
+    NUM_STEPS = 20
     VECTOR_GUIDANCE_SCALE = 2.0
     GUIDANCE_START = int(NUM_STEPS * 0.1)
     GUIDANCE_END = int(NUM_STEPS * 0.8)
@@ -283,16 +284,16 @@ def gen_bitmap(description, seed_val=42):
     img, svg = generate_svg_with_guidance(
         prompt=PROMPT,
         negative_prompt=NEGATIVE_PROMPT,
-        model_id=stable_diffusion_path,
+        model_id="runwayml/stable-diffusion-v1-5",
         num_inference_steps=NUM_STEPS,
-        guidance_scale=7.5,
+        guidance_scale=20,
         vector_guidance_scale=VECTOR_GUIDANCE_SCALE,
         lpips_mse_lambda=0.1,
         param_search_trials=5, # Number of trials for dynamic parameter search
         guidance_start_step=GUIDANCE_START,
         guidance_end_step=GUIDANCE_END,
         guidance_resolution=256,
-        guidance_interval=2,
+        guidance_interval=1,
         output_path="out_optimized.svg",
         seed=seed_val,
         enable_attention_slicing=True,
