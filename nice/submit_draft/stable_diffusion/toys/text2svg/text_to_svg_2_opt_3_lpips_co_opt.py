@@ -12,7 +12,7 @@ import kagglehub
 
 # 1. Import necessary libraries
 import accelerate
-import lpips # Import the LPIPS library
+import lpips # For Perceptual Loss
 
 # Set memory allocation strategy
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
@@ -29,8 +29,8 @@ import bitmap2svg
 import logging
 
 # Using SDv1.5 as it's often less resource-intensive than v2
+stable_diffusion_path = kagglehub.model_download("arishihu/stable-diffusion-v1-5/pytorch/default/2")
 
-# parse_svg_and_render function remains the same
 def parse_svg_and_render(svg_string: str, width: int, height: int, device: str) -> torch.Tensor:
     polygons = re.findall(r'<polygon points="([^"]+)" fill="([^"]+)"/>', svg_string)
     shapes, shape_groups = [], []
@@ -76,7 +76,8 @@ def generate_svg_with_guidance(
     num_inference_steps: int = 50,
     guidance_scale: float = 7.5,
     vector_guidance_scale: float = 1.5,
-    lpips_mse_lambda: float = 0.1, # Weight for balancing LPIPS and MSE
+    lpips_mse_lambda: float = 0.1,
+    param_search_trials: int = 5, # Number of random parameter sets to try per guidance step
     guidance_start_step: int = 5,
     guidance_end_step: int = 40,
     guidance_resolution: int = 256,
@@ -84,7 +85,6 @@ def generate_svg_with_guidance(
     output_path: str = "output_guided_svg.svg",
     seed: int | None = None,
     enable_attention_slicing: bool = True,
-    enable_cpu_offload: bool = True,
     use_half_precision: bool = True,
     batch_size: int = 1,  
     enable_sequential_cpu_offload: bool = True,
@@ -98,17 +98,15 @@ def generate_svg_with_guidance(
     
     gc.collect()
     torch.cuda.empty_cache()
-    
     torch.backends.cuda.matmul.allow_tf32 = True
     torch.backends.cudnn.allow_tf32 = True
     torch.backends.cudnn.benchmark = True
-    
     # torch.cuda.set_per_process_memory_fraction(0.95)
 
-    # --- 2. Initialize LPIPS model on CPU to save VRAM ---
-    print("Initializing LPIPS model on CPU...")
+    # --- Initialize LPIPS model on CPU to save VRAM ---
     loss_fn_lpips = lpips.LPIPS(net='vgg').to("cpu").eval()
 
+    # --- Model Loading ---
     dtype = torch.float16 if use_half_precision else torch.float32
     loading_kwargs = {"torch_dtype": dtype, "use_safetensors": True, "low_cpu_mem_usage": True}
     if use_half_precision: loading_kwargs["variant"] = "fp16"
@@ -117,7 +115,7 @@ def generate_svg_with_guidance(
         vae = AutoencoderKL.from_pretrained(model_id, subfolder="vae", **loading_kwargs)
         text_encoder = CLIPTextModel.from_pretrained(model_id, subfolder="text_encoder", **loading_kwargs)
         unet = UNet2DConditionModel.from_pretrained(model_id, subfolder="unet", **loading_kwargs)
-    except Exception as e:
+    except Exception:
         vae = AutoencoderKL.from_pretrained(model_id, subfolder="vae", torch_dtype=dtype)
         text_encoder = CLIPTextModel.from_pretrained(model_id, subfolder="text_encoder", torch_dtype=dtype)
         unet = UNet2DConditionModel.from_pretrained(model_id, subfolder="unet", torch_dtype=dtype)
@@ -157,42 +155,28 @@ def generate_svg_with_guidance(
         logging.error(f"Could not enable gradient checkpointing: {e}")
 
     # --- Input Preparation (Preserved) ---
-    gc.collect()
-    torch.cuda.empty_cache()
-    height = 512
-    width = 512
-    
+    gc.collect(); torch.cuda.empty_cache()
+    height, width = 512, 512
     with torch.no_grad():
         if low_vram_shift_to_cpu and not enable_sequential_cpu_offload: text_encoder = text_encoder.to(device)
         text_input = tokenizer([prompt], padding="max_length", max_length=tokenizer.model_max_length, truncation=True, return_tensors="pt")
         text_embeddings = text_encoder(text_input.input_ids.to(device))[0]
         if low_vram_shift_to_cpu and not enable_sequential_cpu_offload: text_encoder = text_encoder.to("cpu")
-        
         uncond_input = tokenizer([negative_prompt], padding="max_length", max_length=tokenizer.model_max_length, truncation=True, return_tensors="pt")
         if low_vram_shift_to_cpu and not enable_sequential_cpu_offload: text_encoder = text_encoder.to(device)
         uncond_embeddings = text_encoder(uncond_input.input_ids.to(device))[0]
         if low_vram_shift_to_cpu and not enable_sequential_cpu_offload: text_encoder = text_encoder.to("cpu")
-
     text_embeddings = torch.cat([uncond_embeddings, text_embeddings]).to(device=device, dtype=dtype)
     del uncond_embeddings
-    gc.collect()
-    torch.cuda.empty_cache()
+    gc.collect(); torch.cuda.empty_cache()
     
-    latent_height = int(height // 8)
-    latent_width = int(width // 8)
+    latent_height, latent_width = int(height // 8), int(width // 8)
     latents = torch.randn((batch_size, unet.config.in_channels, latent_height, latent_width), generator=generator, device=device, dtype=dtype)
     latents = latents * scheduler.init_noise_sigma
     
     scheduler.set_timesteps(num_inference_steps)
     
-    svg_params_guidance = {
-        'num_colors': None,
-        'simplification_epsilon_factor': 0.02,
-        'min_contour_area': (guidance_resolution/512)**2 * 30.0,
-        'max_features_to_render': 64
-    }
-
-    # --- Denoising Loop with Perceptual Loss ---
+    # --- Denoising Loop with Joint Optimization ---
     for i, t in enumerate(tqdm(scheduler.timesteps)):
         if i % 5 == 0: gc.collect(); torch.cuda.empty_cache()
         
@@ -209,10 +193,10 @@ def generate_svg_with_guidance(
         noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
         noise_pred_cfg = noise_pred_uncond + guidance_scale * (noise_pred_text - noise_pred_uncond)
         
+        # --- Start of the Joint Optimization Block ---
         if guidance_start_step <= i < guidance_end_step and i % guidance_interval == 0:
             with torch.no_grad():
                 pred_original_sample = scheduler.step(noise_pred_cfg, t, latents).pred_original_sample
-                
                 if low_vram_shift_to_cpu and not enable_sequential_cpu_offload: vae = vae.to(device)
                 decoded_image_tensor = vae.decode(1 / vae.config.scaling_factor * pred_original_sample).sample
                 if low_vram_shift_to_cpu and not enable_sequential_cpu_offload: vae = vae.to("cpu")
@@ -224,24 +208,38 @@ def generate_svg_with_guidance(
                 img_to_vectorize_scaled = (target_image_for_loss / 2 + 0.5).clamp(0, 1)
                 image_np = (img_to_vectorize_scaled.squeeze(0).permute(1, 2, 0).cpu().float().numpy() * 255).astype(np.uint8)
                 pil_image = Image.fromarray(image_np)
-                svg_string = bitmap2svg.bitmap_to_svg(pil_image, **svg_params_guidance)
-                rendered_svg_tensor = parse_svg_and_render(svg_string, pil_image.width, pil_image.height, device)
-                rendered_svg_tensor_scaled = rendered_svg_tensor * 2.0 - 1.0
 
-                # --- 3. HYBRID LOSS CALCULATION with careful memory management ---
-                # Move LPIPS model and tensors to GPU for calculation then immediately back
-                loss_fn_lpips.to(device)
+                # --- 1. Inner Loop: Parameter Search for bitmap2svg ---
+                min_loss = float('inf')
                 
-                # LPIPS expects images in range [-1, 1]
-                loss_lpips_val = loss_fn_lpips(target_image_for_loss.float(), rendered_svg_tensor_scaled.float()).mean()
-                
-                loss_fn_lpips.to("cpu") # Immediately offload back to CPU
-                
-                loss_mse_val = F.mse_loss(target_image_for_loss, rendered_svg_tensor_scaled)
-                loss = loss_lpips_val + lpips_mse_lambda * loss_mse_val
+                param_search_space = {
+                    'num_colors': lambda: random.randint(12, 32),
+                    'simplification_epsilon_factor': lambda: random.uniform(0.001, 0.015),
+                    'min_contour_area': lambda: (guidance_resolution/512)**2 * random.uniform(5.0, 40.0),
+                    'max_features_to_render': lambda: random.randint(64, 128)
+                }
 
+                for _ in range(param_search_trials):
+                    svg_params_trial = {k: v() for k, v in param_search_space.items()}
+                    svg_string = bitmap2svg.bitmap_to_svg(pil_image, **svg_params_trial)
+                    rendered_svg_tensor = parse_svg_and_render(svg_string, pil_image.width, pil_image.height, device)
+                    rendered_svg_tensor_scaled = rendered_svg_tensor * 2.0 - 1.0
+
+                    # Calculate hybrid loss with careful memory management
+                    loss_fn_lpips.to(device)
+                    loss_lpips_val = loss_fn_lpips(target_image_for_loss.float(), rendered_svg_tensor_scaled.float()).mean()
+                    loss_fn_lpips.to("cpu") # Immediately offload back
+                    
+                    loss_mse_val = F.mse_loss(target_image_for_loss, rendered_svg_tensor_scaled)
+                    current_loss = loss_lpips_val + lpips_mse_lambda * loss_mse_val
+
+                    if current_loss.item() < min_loss:
+                        min_loss = current_loss.item()
+                
+                # --- 2. Outer Loop: Guide Latents using the best result ---
+                loss_for_guidance = torch.tensor(min_loss, device=device)
                 grad = noise_pred_text - noise_pred_uncond
-                noise_pred_cfg = noise_pred_cfg + (grad * loss.item() * vector_guidance_scale)
+                noise_pred_cfg = noise_pred_cfg + (grad * loss_for_guidance * vector_guidance_scale)
 
                 del pred_original_sample, decoded_image_tensor, rendered_svg_tensor, rendered_svg_tensor_scaled, target_image_for_loss
                 del img_to_vectorize_scaled, pil_image, svg_string
@@ -249,7 +247,7 @@ def generate_svg_with_guidance(
             gc.collect(); torch.cuda.empty_cache()
         
         latents = scheduler.step(noise_pred_cfg, t, latents).prev_sample
-        
+
     # --- Final Generation (Preserved) ---
     with torch.no_grad():
         if low_vram_shift_to_cpu and not enable_sequential_cpu_offload: vae = vae.to(device)
@@ -257,49 +255,54 @@ def generate_svg_with_guidance(
         image_tensor = vae.decode(latents).sample
         if low_vram_shift_to_cpu and not enable_sequential_cpu_offload: vae = vae.to("cpu")
     
+    gc.collect(); torch.cuda.empty_cache()
+    
     image_tensor = (image_tensor.to("cpu") / 2 + 0.5).clamp(0, 1)
     image_np = (image_tensor.squeeze(0).permute(1, 2, 0).float().numpy() * 255).astype(np.uint8)
     final_image = Image.fromarray(image_np)
     
     final_svg_params = {
-        'num_colors': None,
+        'num_colors': 24,
         'simplification_epsilon_factor': 0.002,
-        'min_contour_area': 1.0,
+        'min_contour_area': 2.0,
         'max_features_to_render': 0
     }
     final_svg_string = bitmap2svg.bitmap_to_svg(final_image, **final_svg_params)
 
     return final_image, final_svg_string
 
-def gen_bitmap(description):
+def gen_bitmap(description, seed_val=42):
     PROMPT = "vector illustration of " + f'{description}' +", flat design, solid colors, minimalist, clean lines"
     NEGATIVE_PROMPT = "photo, realistic, 3d, noisy, texture, blurry, shadow, gradient, complex details, photorealistic"
 
-    NUM_STEPS = 27  
-    VECTOR_GUIDANCE_SCALE = 2.0 
-    GUIDANCE_START = 0
-    GUIDANCE_END = NUM_STEPS
+    NUM_STEPS = 27
+    VECTOR_GUIDANCE_SCALE = 2.0
+    GUIDANCE_START = int(NUM_STEPS * 0.1)
+    GUIDANCE_END = int(NUM_STEPS * 0.8)
 
     img, svg = generate_svg_with_guidance(
         prompt=PROMPT,
         negative_prompt=NEGATIVE_PROMPT,
-        model_id="runwayml/stable-diffusion-v1-5", # Use the path
+        model_id=stable_diffusion_path,
         num_inference_steps=NUM_STEPS,
-        guidance_scale=20,
+        guidance_scale=7.5,
         vector_guidance_scale=VECTOR_GUIDANCE_SCALE,
-        lpips_mse_lambda=0.1, 
+        lpips_mse_lambda=0.1,
+        param_search_trials=5, # Number of trials for dynamic parameter search
         guidance_start_step=GUIDANCE_START,
         guidance_end_step=GUIDANCE_END,
         guidance_resolution=256,
-        guidance_interval=1, # Adjusted interval
+        guidance_interval=2,
         output_path="out_optimized.svg",
-        seed=42,
+        seed=seed_val,
         enable_attention_slicing=True,
-        enable_cpu_offload=True,
         use_half_precision=True,
+        batch_size=1,
         enable_sequential_cpu_offload=True,
         low_vram_shift_to_cpu=True
     )
     return svg, img
 
-svg, img = gen_bitmap('a maroon dodecahedron interwoven with teal threads')
+# Example of how to run it
+desc = "a purple silk scarf with tassel trim"
+final_svg, final_img = gen_bitmap(desc)

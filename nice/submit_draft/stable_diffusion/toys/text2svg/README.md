@@ -20,3 +20,17 @@
 * Dependencies:
     * [DiffVG](../../../../paper/DiffVG/)
     * [Bézier Splatting for Fast and Differentiable Vector Graphics Rendering](../../../../paper/bezier_splatting_for_fast_and_differentiable_vector_graphics_rendering/)
+
+### Supplement Materials
+| Feature | Traditional Bitmap to SVG Algorithms (e.g., vtracer) | Differentiable SVG Generation |
+| :--------------- | :------------------------------------------------------- | :-------------------------------------------------- |
+| **Working Principle** | Rule-based heuristics using pixel analysis, edge detection, curve fitting | Parameterized SVG optimized via gradient descent using a differentiable renderer |
+| **Core Mechanism** | Rules and heuristics | Gradient descent and loss function minimization |
+| **Differentiability** | **No** (Black box, non-differentiable) | **Yes** (End-to-end differentiable) |
+| **Semantic Understanding** | Weak (pixel-level features only) | Strong (integrates pre-trained perceptual models) |
+| **Creativity** | None (replication only) | High (can achieve text-to-vector, style transfer, etc.) |
+| **Output File Quality** | Potentially redundant, fragmented, difficult to edit | Cleaner, more semantic, easier to edit (theoretically) |
+| **Computational Efficiency** | High (for simple images) | Low (requires rendering and backpropagation in each iteration) |
+| **Training Required** | No | Typically **no large-scale model training from scratch**, but requires an optimization process. Some methods might train small, parameterized generators. |
+| **Implementation Complexity** | Relatively simple | Complex, involves deep learning and graphics knowledge |
+| **Typical Applications** | Logo vectorization, scanned drawing vectorization, image contour extraction | AI drawing (direct SVG output), vector style transfer, text-to-icon generation |
