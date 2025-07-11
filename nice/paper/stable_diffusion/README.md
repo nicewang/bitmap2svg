@@ -133,7 +133,7 @@ Decoder Unet Block (generally) = {
 } i.e. Upsample Block
 ```
 #### Special Design of UNet in Stable Diffusion
-There 2 types of block - `ResNet Block` and `Attention Block`
+There are 2 types of block - `ResNet Block` and `Attention Block`
 
 ```
 ResNet Block:

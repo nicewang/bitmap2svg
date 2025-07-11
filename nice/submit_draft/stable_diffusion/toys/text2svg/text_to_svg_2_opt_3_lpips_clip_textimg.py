@@ -9,7 +9,6 @@
 # - VERSION: Added logic to initialize latents from text embeddings.
 # ==============================================================================
 
-# | export
 import torch
 import torch.nn.functional as F
 from tqdm.auto import tqdm
@@ -97,7 +96,7 @@ def create_latents_from_embedding(embedding: torch.Tensor, target_shape: tuple, 
     emb_dim = embedding.shape[1]
 
     # Ensure the embedding is on the correct device
-    device = target_shape.device if isinstance(target_shape, torch.Tensor) else 'cpu'
+    device = embedding.device
 
     # Reshape and interpolate the embedding to create a structured latent
     # We want to create 'channels' number of images from the embedding
@@ -110,6 +109,10 @@ def create_latents_from_embedding(embedding: torch.Tensor, target_shape: tuple, 
     # Calculate a side length for a square we can form from each chunk
     side_len = int(chunk_size**0.5)
     
+    # Add a check for side_len being zero to prevent errors
+    if side_len == 0:
+        return torch.randn(target_shape, generator=generator, device=device)
+        
     structured_channels = []
     for i in range(channels):
         chunk = embedding[0, i*chunk_size : (i+1)*chunk_size]
@@ -124,7 +127,8 @@ def create_latents_from_embedding(embedding: torch.Tensor, target_shape: tuple, 
     structured_latent = torch.cat(structured_channels, dim=1)
     
     # Normalize the structured latent to have a similar distribution to random noise
-    structured_latent = (structured_latent - structured_latent.mean()) / structured_latent.std()
+    if structured_latent.std() > 0:
+        structured_latent = (structured_latent - structured_latent.mean()) / structured_latent.std()
     
     return structured_latent.to(device)
 
@@ -132,9 +136,10 @@ def create_latents_from_embedding(embedding: torch.Tensor, target_shape: tuple, 
 def generate_svg_with_guidance(
     prompt: str,
     negative_prompt: str = "",
+    description: str = "",
     model_id: str = "runwayml/stable-diffusion-v1-5",
     device: str = "cuda:0",
-    # --- NEW: Strength parameter for blending structured and random noise ---
+    # --- Strength parameter for blending structured and random noise ---
     strength: float = 0.8, # 1.0 is pure noise, 0.0 is pure structure
     num_inference_steps: int = 50,
     guidance_scale: float = 7.5,
@@ -186,7 +191,6 @@ def generate_svg_with_guidance(
     loading_kwargs = {"torch_dtype": dtype, "use_safetensors": True, "low_cpu_mem_usage": True}
     if use_half_precision: loading_kwargs["variant"] = "fp16"
 
-    # The rest of the model loading is unchanged...
     try:
         vae = AutoencoderKL.from_pretrained(model_id, subfolder="vae", **loading_kwargs)
         text_encoder = CLIPTextModel.from_pretrained(model_id, subfolder="text_encoder", **loading_kwargs)
@@ -199,7 +203,6 @@ def generate_svg_with_guidance(
     tokenizer = CLIPTokenizer.from_pretrained(model_id, subfolder="tokenizer")
     scheduler = DDIMScheduler.from_pretrained(model_id, subfolder="scheduler")
 
-    # --- This section is also unchanged ---
     if enable_attention_slicing:
         # Use a robust check for different diffusers versions
         if hasattr(unet, 'enable_sliced_attention'):
@@ -227,6 +230,11 @@ def generate_svg_with_guidance(
         if low_vram_shift_to_cpu and not enable_sequential_cpu_offload: text_encoder = text_encoder.to(device)
         text_input = tokenizer([prompt], padding="max_length", max_length=tokenizer.model_max_length, truncation=True, return_tensors="pt")
         prompt_embeddings = text_encoder(text_input.input_ids.to(device))[0]
+        if description != "":
+            des_input = tokenizer([description], padding="max_length", max_length=tokenizer.model_max_length, truncation=True, return_tensors="pt")
+            input_embeddings = text_encoder(des_input.input_ids.to(device))[0]
+        else:
+            input_embeddings = prompt_embeddings
         
         uncond_input = tokenizer([negative_prompt], padding="max_length", max_length=tokenizer.model_max_length, truncation=True, return_tensors="pt")
         uncond_embeddings = text_encoder(uncond_input.input_ids.to(device))[0]
@@ -234,16 +242,13 @@ def generate_svg_with_guidance(
         
         text_embeddings = torch.cat([uncond_embeddings, prompt_embeddings]).to(device=device, dtype=dtype)
         
-        # This part for CLIP guidance is also unchanged
         clip_text_input = clip_processor(text=[prompt], return_tensors="pt", padding=True).to(guidance_device)
         text_features = clip_model.get_text_features(**clip_text_input)
         text_features = text_features / text_features.norm(p=2, dim=-1, keepdim=True)
         
-    # --- MODIFIED SECTION: Create initial latents ---
     latent_shape = (batch_size, unet.config.in_channels, height // 8, width // 8)
     
-    # Create the structured latent from the prompt's embedding
-    structured_latents = create_latents_from_embedding(prompt_embeddings, latent_shape, generator)
+    structured_latents = create_latents_from_embedding(input_embeddings.mean(dim=1), latent_shape, generator)
     
     # Create pure random noise
     random_latents = torch.randn(latent_shape, generator=generator, device=device, dtype=dtype)
@@ -251,12 +256,10 @@ def generate_svg_with_guidance(
     # Blend the structured and random latents based on the strength parameter
     latents = (1.0 - strength) * structured_latents + strength * random_latents
     
-    # --- End of MODIFIED SECTION ---
 
     latents = latents * scheduler.init_noise_sigma
     scheduler.set_timesteps(num_inference_steps)
     
-    # The rest of the function (denoising loop, loss calculation, etc.) is strictly unchanged.
     svg_params_guidance = {
         'num_colors': None,
         'simplification_epsilon_factor': 0.02,
@@ -303,7 +306,8 @@ def generate_svg_with_guidance(
                 loss_mse_val = F.mse_loss(target_image_gpu, rendered_svg_gpu)
                 reconstruction_loss = loss_lpips_val + lpips_mse_lambda * loss_mse_val
 
-                clip_image_input = clip_processor(images=rendered_svg_gpu, return_tensors="pt").to(guidance_device)
+                clip_image_input = clip_processor(images=rendered_svg_tensor, return_tensors="pt").to(guidance_device)
+                
                 image_features = clip_model.get_image_features(**clip_image_input)
                 image_features = image_features / image_features.norm(p=2, dim=-1, keepdim=True)
                 
@@ -338,3 +342,46 @@ def generate_svg_with_guidance(
     torch.cuda.empty_cache()
 
     return final_image, final_svg_string
+
+
+# prompt = "A cute cat wearing a wizard hat, minimalist logo, vector art"
+# negative_prompt = "blurry, pixelated, jpeg artifacts, low quality, photorealistic, complex, 3d render"
+
+# # prompt = "gray wool coat with a faux fur collar, vector art"
+# prompt = "simple vector illustration of gray wool coat with a faux fur collar"
+# negative_prompt = "blurry, pixelated, jpeg artifacts, low quality, photorealistic, complex, 3d render"
+
+description = "a maroon dodecahedron interwoven with teal threads"
+# prompt = (
+#     f"Simple vector illustration of {description} "
+#     "with flat color blocks, beautiful, minimal details, solid colors only"
+# )
+# negative_prompt = "lines, framing, hatching, background, textures, patterns, details, outlines"
+
+prompt = f"simple vector illustration of {description}"
+negative_prompt = "blurry, pixelated, jpeg artifacts, low quality, photorealistic, complex, 3d render, lines, framing, hatching, background, textures, patterns, details, outlines"
+
+seed = 42
+device = "cuda:0"
+
+img, svg = generate_svg_with_guidance(
+    prompt=prompt,
+    negative_prompt=negative_prompt,
+    description=description,
+    device=device,
+    # --- Strength parameter for blending structured and random noise ---
+    strength=0.8, # 1.0 is pure noise, 0.0 is pure structure
+    num_inference_steps=25,
+    guidance_scale=20,
+    vector_guidance_scale=3.5,
+    lpips_mse_lambda=0.1,
+    clip_guidance_scale=0.8, 
+    guidance_start_step=0,
+    guidance_end_step=24,
+    guidance_resolution=256,
+    guidance_interval=1,
+    seed=42,
+    use_half_precision=True,
+    enable_sequential_cpu_offload=True,
+    low_vram_shift_to_cpu=False
+)
