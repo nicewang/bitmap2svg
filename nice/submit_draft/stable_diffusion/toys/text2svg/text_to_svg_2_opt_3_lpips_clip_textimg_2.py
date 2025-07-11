@@ -97,7 +97,7 @@ def create_latents_from_embedding(embedding: torch.Tensor, target_shape: tuple, 
         device: Device to run computations on
     
     Returns:
-        Latent tensor encoded through VAE
+        Latent tensor encoded through VAE with channel-wise normalization
     """
     # embedding shape is (1, embedding_dim), e.g., (1, 1024)
     # target_shape is (batch_size, channels, height, width), e.g., (1, 4, 64, 64)
@@ -162,6 +162,15 @@ def create_latents_from_embedding(embedding: torch.Tensor, target_shape: tuple, 
     with torch.no_grad():
         latent = vae.encode(structured_image).latent_dist.sample(generator=generator)
         latent = latent * vae.config.scaling_factor
+    
+    # Apply channel-wise normalization to match training distribution
+    for c in range(latent.shape[1]):  # Iterate over channels
+        channel = latent[:, c:c+1, :, :]
+        # Normalize each channel to N(0,1) distribution
+        channel_mean = channel.mean()
+        channel_std = channel.std()
+        if channel_std > 1e-8:  # Avoid division by zero
+            latent[:, c:c+1, :, :] = (channel - channel_mean) / channel_std
     
     return latent
 
