@@ -75,6 +75,7 @@ def parse_svg_and_render(svg_string: str, width: int, height: int, device: str) 
 def generate_svg_with_guidance(
     prompt: str,
     negative_prompt: str = "",
+    description: str = "",
     model_id: str = "runwayml/stable-diffusion-v1-5",
     device: str = "cuda:0",
     num_inference_steps: int = 50,
@@ -193,7 +194,11 @@ def generate_svg_with_guidance(
 
         # clip_model.to(device) # Move to GPU for this calculation
         # clip_text_input = clip_processor(text=[prompt], return_tensors="pt", padding=True).to(device)
-        clip_text_input = clip_processor(text=[prompt], return_tensors="pt", padding=True).to("cuda:1")
+        # clip_text_input = clip_processor(text=[prompt], return_tensors="pt", padding=True).to("cuda:1")
+        if description != "":
+            clip_text_input = clip_processor(text=[description], return_tensors="pt", padding=True).to("cuda:1")
+        else:
+            clip_text_input = clip_processor(text=[prompt], return_tensors="pt", padding=True).to("cuda:1")
         text_features = clip_model.get_text_features(**clip_text_input)
         text_features = text_features / text_features.norm(p=2, dim=-1, keepdim=True) # Normalize features
         # clip_model.to("cpu") # Move back to CPU immediately
@@ -344,6 +349,7 @@ device = "cuda:0"
 img, svg = generate_svg_with_guidance(
     prompt=prompt,
     negative_prompt=negative_prompt,
+    description=description,
     guidance_scale=20,
     guidance_start_step=0,
     guidance_end_step=24,

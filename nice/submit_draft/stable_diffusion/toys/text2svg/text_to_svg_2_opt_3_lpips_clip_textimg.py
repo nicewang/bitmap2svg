@@ -1,14 +1,3 @@
-# ==============================================================================
-# Text-to-SVG Generation with Stable Diffusion, Hybrid Loss, and Multi-GPU
-#
-# Features:
-# - Stable Diffusion for base image generation.
-# - Vector guidance using a hybrid loss (Reconstruction + Semantic).
-# - Multi-GPU support for parallel computation.
-# - Various memory optimization techniques.
-# - VERSION: Added logic to initialize latents from text embeddings.
-# ==============================================================================
-
 import torch
 import torch.nn.functional as F
 from tqdm.auto import tqdm
@@ -32,7 +21,7 @@ from transformers import CLIPModel, CLIPProcessor
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 
 # Diffusers and Transformers
-from diffusers import AutoencoderKL, UNet2DConditionModel, DDIMScheduler
+from diffusers import AutoencoderKL, UNet2DConditionModel, DDIMScheduler, DPMSolverMultistepScheduler
 from transformers import CLIPTextModel, CLIPTokenizer
 
 # Differentiable SVG Renderer
@@ -85,52 +74,94 @@ def parse_svg_and_render(svg_string: str, width: int, height: int, device: str) 
     return img
 
 
-# --- NEW HELPER FUNCTION ---
-def create_latents_from_embedding(embedding: torch.Tensor, target_shape: tuple, generator: torch.Generator) -> torch.Tensor:
+def create_latents_from_embedding(embedding: torch.Tensor, target_shape: tuple, generator: torch.Generator, vae: AutoencoderKL, device: str) -> torch.Tensor:
     """
-    Creates a structured initial latent tensor from a text embedding.
+    Creates initial latent tensor by first generating an image from text embedding, then encoding it through VAE.
+    
+    Args:
+        embedding: Text embedding tensor (1, embedding_dim)
+        target_shape: Target latent shape (batch_size, channels, height, width)
+        generator: Random number generator for reproducibility
+        vae: VAE model for encoding image to latent space
+        device: Device to run computations on
+    
+    Returns:
+        Latent tensor encoded through VAE with channel-wise normalization
     """
     # embedding shape is (1, embedding_dim), e.g., (1, 1024)
     # target_shape is (batch_size, channels, height, width), e.g., (1, 4, 64, 64)
     batch_size, channels, height, width = target_shape
     emb_dim = embedding.shape[1]
-
-    # Ensure the embedding is on the correct device
-    device = embedding.device
-
-    # Reshape and interpolate the embedding to create a structured latent
-    # We want to create 'channels' number of images from the embedding
-    chunk_size = emb_dim // channels
+    
+    # Calculate image dimensions from latent dimensions
+    image_height = height * 8  # VAE downsamples by factor of 8
+    image_width = width * 8
+    
+    # Create structured image from embedding
+    # Use embedding to create spatial patterns
+    chunk_size = emb_dim // 3  # Split into RGB channels
     
     if chunk_size == 0:
-        # Fallback for small embeddings
-        return torch.randn(target_shape, generator=generator, device=device)
+        # Fallback: create random image and encode it
+        random_image = torch.randn(batch_size, 3, image_height, image_width, generator=generator, device=device)
+        random_image = torch.tanh(random_image)  # Normalize to [-1, 1]
         
-    # Calculate a side length for a square we can form from each chunk
-    side_len = int(chunk_size**0.5)
-    
-    # Add a check for side_len being zero to prevent errors
-    if side_len == 0:
-        return torch.randn(target_shape, generator=generator, device=device)
+        with torch.no_grad():
+            latent = vae.encode(random_image).latent_dist.sample(generator=generator)
+            latent = latent * vae.config.scaling_factor
         
-    structured_channels = []
-    for i in range(channels):
-        chunk = embedding[0, i*chunk_size : (i+1)*chunk_size]
-        # Take a slice that can form a square
-        square_chunk = chunk[:side_len*side_len]
-        # Reshape to a small square image
-        small_image = square_chunk.view(1, 1, side_len, side_len)
-        # Interpolate to the target latent size
-        interpolated_channel = F.interpolate(small_image, size=(height, width), mode='bilinear', align_corners=False)
-        structured_channels.append(interpolated_channel)
-
-    structured_latent = torch.cat(structured_channels, dim=1)
+        return latent
     
-    # Normalize the structured latent to have a similar distribution to random noise
-    if structured_latent.std() > 0:
-        structured_latent = (structured_latent - structured_latent.mean()) / structured_latent.std()
+    # Calculate spatial dimensions for embedding reshaping
+    spatial_size = int(np.sqrt(chunk_size))
+    if spatial_size == 0:
+        spatial_size = 1
     
-    return structured_latent.to(device)
+    # Create RGB channels from embedding
+    rgb_channels = []
+    for i in range(3):
+        start_idx = i * chunk_size
+        end_idx = min((i + 1) * chunk_size, emb_dim)
+        channel_data = embedding[0, start_idx:end_idx]
+        
+        # Pad if necessary
+        needed_size = spatial_size * spatial_size
+        if len(channel_data) < needed_size:
+            padding = torch.randn(needed_size - len(channel_data), device=device, generator=generator)
+            channel_data = torch.cat([channel_data, padding])
+        else:
+            channel_data = channel_data[:needed_size]
+        
+        # Reshape to spatial dimensions
+        channel_image = channel_data.view(1, 1, spatial_size, spatial_size)
+        
+        # Interpolate to target image size
+        channel_image = F.interpolate(channel_image, size=(image_height, image_width), mode='bilinear', align_corners=False)
+        rgb_channels.append(channel_image)
+    
+    # Combine RGB channels
+    structured_image = torch.cat(rgb_channels, dim=1)  # Shape: (1, 3, image_height, image_width)
+    
+    # Normalize to [-1, 1] range (expected by VAE)
+    if structured_image.std() > 0:
+        structured_image = (structured_image - structured_image.mean()) / structured_image.std()
+    structured_image = torch.tanh(structured_image)  # Ensure [-1, 1] range
+    
+    # Encode through VAE to get latent representation
+    with torch.no_grad():
+        latent = vae.encode(structured_image).latent_dist.sample(generator=generator)
+        latent = latent * vae.config.scaling_factor
+    
+    # Apply channel-wise normalization to match training distribution
+    for c in range(latent.shape[1]):  # Iterate over channels
+        channel = latent[:, c:c+1, :, :]
+        # Normalize each channel to N(0,1) distribution
+        channel_mean = channel.mean()
+        channel_std = channel.std()
+        if channel_std > 1e-8:  # Avoid division by zero
+            latent[:, c:c+1, :, :] = (channel - channel_mean) / channel_std
+    
+    return latent
 
 
 def generate_svg_with_guidance(
@@ -201,7 +232,7 @@ def generate_svg_with_guidance(
         unet = UNet2DConditionModel.from_pretrained(model_id, subfolder="unet", torch_dtype=dtype)
 
     tokenizer = CLIPTokenizer.from_pretrained(model_id, subfolder="tokenizer")
-    scheduler = DDIMScheduler.from_pretrained(model_id, subfolder="scheduler")
+    scheduler = DPMSolverMultistepScheduler.from_pretrained(model_id, subfolder="scheduler")
 
     if enable_attention_slicing:
         # Use a robust check for different diffusers versions
@@ -238,17 +269,30 @@ def generate_svg_with_guidance(
         
         uncond_input = tokenizer([negative_prompt], padding="max_length", max_length=tokenizer.model_max_length, truncation=True, return_tensors="pt")
         uncond_embeddings = text_encoder(uncond_input.input_ids.to(device))[0]
-        if low_vram_shift_to_cpu and not enable_sequential_cpu_offload: text_encoder = text_encoder.to("cpu")
+        
+        if low_vram_shift_to_cpu and not enable_sequential_cpu_offload: 
+            text_encoder = text_encoder.to("cpu")
         
         text_embeddings = torch.cat([uncond_embeddings, prompt_embeddings]).to(device=device, dtype=dtype)
         
-        clip_text_input = clip_processor(text=[prompt], return_tensors="pt", padding=True).to(guidance_device)
+        if description != "":
+            clip_text_input = clip_processor(text=[description], return_tensors="pt", padding=True).to(guidance_device)
+        else:
+            clip_text_input = clip_processor(text=[prompt], return_tensors="pt", padding=True).to(guidance_device)
         text_features = clip_model.get_text_features(**clip_text_input)
         text_features = text_features / text_features.norm(p=2, dim=-1, keepdim=True)
         
     latent_shape = (batch_size, unet.config.in_channels, height // 8, width // 8)
     
-    structured_latents = create_latents_from_embedding(input_embeddings.mean(dim=1), latent_shape, generator)
+    # Move VAE to device temporarily for encoding
+    if low_vram_shift_to_cpu and not enable_sequential_cpu_offload: 
+        vae = vae.to(device)
+    
+    structured_latents = create_latents_from_embedding(input_embeddings.mean(dim=1), latent_shape, generator, vae, device)
+    
+    # Move VAE back to CPU if needed
+    if low_vram_shift_to_cpu and not enable_sequential_cpu_offload: 
+        vae = vae.to("cpu")
     
     # Create pure random noise
     random_latents = torch.randn(latent_shape, generator=generator, device=device, dtype=dtype)
@@ -273,19 +317,34 @@ def generate_svg_with_guidance(
         with torch.no_grad():
             latent_model_input = torch.cat([latents] * 2)
             latent_model_input = scheduler.scale_model_input(latent_model_input, t)
-            if low_vram_shift_to_cpu and not enable_sequential_cpu_offload: unet = unet.to(device)
+            if low_vram_shift_to_cpu and not enable_sequential_cpu_offload: 
+                unet = unet.to(device)
             noise_pred = unet(latent_model_input, t, encoder_hidden_states=text_embeddings).sample
-            if low_vram_shift_to_cpu and not enable_sequential_cpu_offload: unet = unet.to("cpu")
+            if low_vram_shift_to_cpu and not enable_sequential_cpu_offload: 
+                unet = unet.to("cpu")
 
         noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
         noise_pred_cfg = noise_pred_uncond + guidance_scale * (noise_pred_text - noise_pred_uncond)
 
         if guidance_start_step <= i < guidance_end_step and i % guidance_interval == 0:
             with torch.no_grad():
-                pred_original_sample = scheduler.step(noise_pred_cfg, t, latents).pred_original_sample
-                if low_vram_shift_to_cpu and not enable_sequential_cpu_offload: vae = vae.to(device)
+                # Create temporary scheduler to avoid state corruption
+                temp_scheduler = DPMSolverMultistepScheduler.from_pretrained(model_id, subfolder="scheduler")
+                temp_scheduler.set_timesteps(num_inference_steps)
+                
+                # For DPMSolverMultistepScheduler, we need to handle the step differently
+                temp_step_result = temp_scheduler.step(noise_pred_cfg, t, latents)
+                if hasattr(temp_step_result, 'pred_original_sample'):
+                    pred_original_sample = temp_step_result.pred_original_sample
+                else:
+                    # Fallback: use current latents as approximation
+                    pred_original_sample = latents
+                
+                if low_vram_shift_to_cpu and not enable_sequential_cpu_offload: 
+                    vae = vae.to(device)
                 decoded_image_tensor = vae.decode(1 / vae.config.scaling_factor * pred_original_sample).sample
-                if low_vram_shift_to_cpu and not enable_sequential_cpu_offload: vae = vae.to("cpu")
+                if low_vram_shift_to_cpu and not enable_sequential_cpu_offload: 
+                    vae = vae.to("cpu")
 
                 target_image_for_loss = decoded_image_tensor
                 if guidance_resolution < height:
@@ -317,9 +376,15 @@ def generate_svg_with_guidance(
                 grad = noise_pred_text - noise_pred_uncond
                 noise_pred_cfg = noise_pred_cfg + (grad * total_loss.item() * vector_guidance_scale)
 
-            gc.collect(); torch.cuda.empty_cache()
+            gc.collect(); 
+            torch.cuda.empty_cache()
 
-        latents = scheduler.step(noise_pred_cfg, t, latents).prev_sample
+        # Use scheduler step properly for DPMSolverMultistepScheduler
+        step_result = scheduler.step(noise_pred_cfg, t, latents)
+        if hasattr(step_result, 'prev_sample'):
+            latents = step_result.prev_sample
+        else:
+            latents = step_result
 
     with torch.no_grad():
         if low_vram_shift_to_cpu and not enable_sequential_cpu_offload: vae = vae.to(device)
@@ -332,8 +397,10 @@ def generate_svg_with_guidance(
     final_image = Image.fromarray(image_np)
 
     final_svg_params = {
-        'num_colors': None, 'simplification_epsilon_factor': 0.002,
-        'min_contour_area': 0.5, 'max_features_to_render': 0
+        'num_colors': None, 
+        'simplification_epsilon_factor': 0.002,
+        'min_contour_area': 0.1, 
+        'max_features_to_render': 0
     }
     final_svg_string = bitmap2svg.bitmap_to_svg(final_image, **final_svg_params)
     
@@ -351,15 +418,29 @@ def generate_svg_with_guidance(
 # prompt = "simple vector illustration of gray wool coat with a faux fur collar"
 # negative_prompt = "blurry, pixelated, jpeg artifacts, low quality, photorealistic, complex, 3d render"
 
-description = "a maroon dodecahedron interwoven with teal threads"
+description = "orange corduroy overalls"
 # prompt = (
 #     f"Simple vector illustration of {description} "
 #     "with flat color blocks, beautiful, minimal details, solid colors only"
 # )
 # negative_prompt = "lines, framing, hatching, background, textures, patterns, details, outlines"
 
-prompt = f"simple vector illustration of {description}"
-negative_prompt = "blurry, pixelated, jpeg artifacts, low quality, photorealistic, complex, 3d render, lines, framing, hatching, background, textures, patterns, details, outlines"
+# prompt = f"simple vector illustration of {description}"
+# negative_prompt = "blurry, pixelated, jpeg artifacts, low quality, photorealistic, complex, 3d render, lines, framing, hatching, background, textures, patterns, details, outlines"
+
+prompt = (
+    f"clean classic vector illustration of {description}, "
+    "flat design, solid colors only, minimalist, simple shapes, "
+    "geometric style, flat color blocks, minimal details, no complex details"
+)
+
+negative_prompt = (
+    "photo, realistic, 3d, noisy, textures, blurry, shadow, "
+    "lines, framing, hatching, background, patterns, outlines, "
+    "gradient, complex details, patterns, stripes, dots, "
+    "repetitive elements, small details, intricate designs, "
+    "busy composition, cluttered"
+)
 
 seed = 42
 device = "cuda:0"
@@ -370,14 +451,14 @@ img, svg = generate_svg_with_guidance(
     description=description,
     device=device,
     # --- Strength parameter for blending structured and random noise ---
-    strength=0.8, # 1.0 is pure noise, 0.0 is pure structure
-    num_inference_steps=25,
-    guidance_scale=20,
-    vector_guidance_scale=3.5,
+    strength=0.9, # 1.0 is pure noise, 0.0 is pure structure
+    num_inference_steps=15,
+    guidance_scale=8.0,
+    vector_guidance_scale=2.0,
     lpips_mse_lambda=0.1,
-    clip_guidance_scale=0.8, 
+    clip_guidance_scale=0.9, 
     guidance_start_step=0,
-    guidance_end_step=24,
+    guidance_end_step=15,
     guidance_resolution=256,
     guidance_interval=1,
     seed=42,
