@@ -164,6 +164,45 @@ def create_latents_from_embedding(embedding: torch.Tensor, target_shape: tuple, 
     return latent
 
 
+def get_progressive_guidance_config(current_step: int, total_steps: int) -> dict:
+    """
+    Get progressive guidance configuration based on current step.
+    
+    Args:
+        current_step: Current denoising step
+        total_steps: Total number of inference steps
+    
+    Returns:
+        Dictionary containing guidance weights for current stage
+    """
+    progress = current_step / total_steps
+    
+    # Early stage (0-30%): Focus on semantic structure
+    if progress < 0.3:
+        return {
+            'clip_weight': 1.0,      # Semantic matching is most important
+            'lpips_weight': 0.3,     # Lower perceptual loss
+            'mse_weight': 0.1,       # Lowest MSE
+            'guidance_strength': 0.8  # Strong guidance
+        }
+    # Middle stage (30-70%): Balance perceptual quality
+    elif progress < 0.7:
+        return {
+            'clip_weight': 0.7,      # Maintain semantic
+            'lpips_weight': 0.8,     # Improve perceptual quality
+            'mse_weight': 0.3,       # Moderate MSE
+            'guidance_strength': 0.6  # Medium guidance
+        }
+    # Late stage (70-100%): Detail refinement
+    else:
+        return {
+            'clip_weight': 0.5,      # Lower semantic weight
+            'lpips_weight': 1.0,     # Highest perceptual loss
+            'mse_weight': 0.5,       # Detail optimization
+            'guidance_strength': 0.4  # Light guidance
+        }
+
+
 def generate_svg_with_guidance(
     prompt: str,
     negative_prompt: str = "",
@@ -363,7 +402,6 @@ def generate_svg_with_guidance(
 
                 loss_lpips_val = loss_fn_lpips(target_image_gpu.float(), rendered_svg_gpu.float()).mean()
                 loss_mse_val = F.mse_loss(target_image_gpu, rendered_svg_gpu)
-                reconstruction_loss = loss_lpips_val + lpips_mse_lambda * loss_mse_val
 
                 clip_image_input = clip_processor(images=rendered_svg_tensor, return_tensors="pt").to(guidance_device)
                 
@@ -371,10 +409,24 @@ def generate_svg_with_guidance(
                 image_features = image_features / image_features.norm(p=2, dim=-1, keepdim=True)
                 
                 clip_loss = 1 - (text_features @ image_features.T).squeeze()
-                total_loss = reconstruction_loss + clip_guidance_scale * clip_loss
+                
+                # Get progressive guidance configuration
+                guidance_config = get_progressive_guidance_config(i, num_inference_steps)
+                
+                # Apply progressive weights to losses
+                weighted_lpips_loss = guidance_config['lpips_weight'] * loss_lpips_val
+                weighted_mse_loss = guidance_config['mse_weight'] * loss_mse_val
+                weighted_clip_loss = guidance_config['clip_weight'] * clip_loss
+                
+                # Calculate final losses
+                reconstruction_loss = weighted_lpips_loss + lpips_mse_lambda * weighted_mse_loss
+                total_loss = reconstruction_loss + clip_guidance_scale * weighted_clip_loss
+                
+                # Apply progressive guidance strength
+                progressive_vector_guidance_scale = vector_guidance_scale * guidance_config['guidance_strength']
 
                 grad = noise_pred_text - noise_pred_uncond
-                noise_pred_cfg = noise_pred_cfg + (grad * total_loss.item() * vector_guidance_scale)
+                noise_pred_cfg = noise_pred_cfg + (grad * total_loss.item() * progressive_vector_guidance_scale)
 
             gc.collect(); 
             torch.cuda.empty_cache()
@@ -455,8 +507,10 @@ img, svg = generate_svg_with_guidance(
     num_inference_steps=15,
     guidance_scale=8.0,
     vector_guidance_scale=2.0,
-    lpips_mse_lambda=0.1,
-    clip_guidance_scale=0.9, 
+    # ToDo: parameter adjustment
+    lpips_mse_lambda=1.0, # now 1.0 since gradualy changed clip-weight 
+    clip_guidance_scale=1.0, # now 1.0 since gradualy changed clip-weight 
+    # ToDo-End: parameter adjustment
     guidance_start_step=0,
     guidance_end_step=15,
     guidance_resolution=256,

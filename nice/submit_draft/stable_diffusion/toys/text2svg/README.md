@@ -19,6 +19,7 @@
 - 2_opt_3_lpips:
     - Increasing lambda (e.g. 0.2, 0.5): will make the model focus more on accurate color and brightness matching, possibly sacrificing some structural flexibility.
     - Decreasing lambda (e.g. 0.05, 0.01): will allow the model to more freely adjust the colors to better match the texture and shape, but may cause the final SVG to have a different tone than the original image.
+- text2svg_2_opt_3_lpips_2.ipynb is the second running of 2_opt_3_lpips (not 2_opt_3_lpips_2)
 - 2_opt_3_lpips_clip:
 	- $$L_{total} = L_{reconstruction} + \lambda_{clip} \cdot L_{clip}$$
 
