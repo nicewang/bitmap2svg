@@ -14,15 +14,12 @@ import kagglehub
 import accelerate
 import lpips # Import the LPIPS library
 
-# NEW: Import CLIP-related components from transformers
-from transformers import CLIPModel, CLIPProcessor
-
 # Set memory allocation strategy
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 
 # Diffusers and Transformers
 from diffusers import AutoencoderKL, UNet2DConditionModel, DDIMScheduler, DPMSolverMultistepScheduler
-from transformers import CLIPTextModel, CLIPTokenizer
+from transformers import CLIPModel, CLIPProcessor, CLIPTextModel, CLIPTokenizer
 
 # Differentiable SVG Renderer
 import pydiffvg
@@ -35,18 +32,22 @@ import logging
 stable_diffusion_path = kagglehub.model_download("stabilityai/stable-diffusion-v2/pytorch/1/1")
 # print("Model download complete.")
 
-# The parse_svg_and_render function remains the same and is assumed to be defined here.
 def parse_svg_and_render(svg_string: str, width: int, height: int, device: str) -> torch.Tensor:
     polygons = re.findall(r'<polygon points="([^"]+)" fill="([^"]+)"/>', svg_string)
     shapes, shape_groups = [], []
     for points_str, fill_str in polygons:
         try:
             points_data = [float(p) for p in points_str.replace(',', ' ').split()]
-            if not points_data or len(points_data) % 2 != 0: continue
+            if not points_data or len(points_data) % 2 != 0: 
+                continue
+
             points = torch.tensor(points_data, dtype=torch.float32, device=device).view(-1, 2)
             hex_color = fill_str.lstrip('#')
-            if len(hex_color) == 3: r, g, b = tuple(int(hex_color[i]*2, 16) for i in range(3))
-            else: r, g, b = tuple(int(hex_color[i:i+2], 16) for i in (0, 2, 4))
+            if len(hex_color) == 3: 
+                r, g, b = tuple(int(hex_color[i]*2, 16) for i in range(3))
+            else: 
+                r, g, b = tuple(int(hex_color[i:i+2], 16) for i in (0, 2, 4))
+
             color = torch.tensor([r/255.0, g/255.0, b/255.0, 1.0], device=device)
             path = pydiffvg.Polygon(points=points, is_closed=True)
             shapes.append(path)
@@ -58,8 +59,10 @@ def parse_svg_and_render(svg_string: str, width: int, height: int, device: str) 
     bg_color_tensor = torch.tensor([0.0, 0.0, 0.0], device=device)
     if bg_match:
         hex_color = bg_match.group(1).lstrip('#')
-        if len(hex_color) == 3: r, g, b = tuple(int(hex_color[i]*2, 16) for i in range(3))
-        else: r, g, b = tuple(int(hex_color[i:i+2], 16) for i in (0, 2, 4))
+        if len(hex_color) == 3: 
+            r, g, b = tuple(int(hex_color[i]*2, 16) for i in range(3))
+        else: 
+            r, g, b = tuple(int(hex_color[i:i+2], 16) for i in (0, 2, 4))
         bg_color_tensor = torch.tensor([r/255.0, g/255.0, b/255.0], device=device)
 
     if not shapes:
@@ -72,7 +75,6 @@ def parse_svg_and_render(svg_string: str, width: int, height: int, device: str) 
     img = img.unsqueeze(0).permute(0, 3, 1, 2)
 
     return img
-
 
 def create_latents_from_embedding(embedding: torch.Tensor, target_shape: tuple, generator: torch.Generator, vae: AutoencoderKL, device: str) -> torch.Tensor:
     """
@@ -259,7 +261,8 @@ def generate_svg_with_guidance(
     
     dtype = torch.float16 if use_half_precision else torch.float32
     loading_kwargs = {"torch_dtype": dtype, "use_safetensors": True, "low_cpu_mem_usage": True}
-    if use_half_precision: loading_kwargs["variant"] = "fp16"
+    if use_half_precision: 
+        loading_kwargs["variant"] = "fp16"
 
     try:
         vae = AutoencoderKL.from_pretrained(model_id, subfolder="vae", **loading_kwargs)
@@ -271,6 +274,7 @@ def generate_svg_with_guidance(
         unet = UNet2DConditionModel.from_pretrained(model_id, subfolder="unet", torch_dtype=dtype)
 
     tokenizer = CLIPTokenizer.from_pretrained(model_id, subfolder="tokenizer")
+    # scheduler = DDIMScheduler.from_pretrained(model_id, subfolder="scheduler")
     scheduler = DPMSolverMultistepScheduler.from_pretrained(model_id, subfolder="scheduler")
 
     if enable_attention_slicing:
@@ -292,12 +296,16 @@ def generate_svg_with_guidance(
     else:
         text_encoder, unet, vae = text_encoder.to("cpu"), unet.to("cpu"), vae.to("cpu")
 
+    gc.collect()
+    torch.cuda.empty_cache()
+
     # --- Input Preparation ---
     height = 512
     width = 512
 
     with torch.no_grad():
-        if low_vram_shift_to_cpu and not enable_sequential_cpu_offload: text_encoder = text_encoder.to(device)
+        if low_vram_shift_to_cpu and not enable_sequential_cpu_offload: 
+            text_encoder = text_encoder.to(device)
         text_input = tokenizer([prompt], padding="max_length", max_length=tokenizer.model_max_length, truncation=True, return_tensors="pt")
         prompt_embeddings = text_encoder(text_input.input_ids.to(device))[0]
         if description != "":
@@ -313,7 +321,10 @@ def generate_svg_with_guidance(
             text_encoder = text_encoder.to("cpu")
         
         text_embeddings = torch.cat([uncond_embeddings, prompt_embeddings]).to(device=device, dtype=dtype)
-        
+        del uncond_embeddings
+        gc.collect()
+        torch.cuda.empty_cache()
+
         if description != "":
             clip_text_input = clip_processor(text=[description], return_tensors="pt", padding=True).to(guidance_device)
         else:
@@ -351,7 +362,9 @@ def generate_svg_with_guidance(
     }
 
     for i, t in enumerate(tqdm(scheduler.timesteps)):
-        if i % 5 == 0: gc.collect(); torch.cuda.empty_cache()
+        if i % 5 == 0: 
+            gc.collect()
+            torch.cuda.empty_cache()
 
         with torch.no_grad():
             latent_model_input = torch.cat([latents] * 2)
@@ -362,11 +375,21 @@ def generate_svg_with_guidance(
             if low_vram_shift_to_cpu and not enable_sequential_cpu_offload: 
                 unet = unet.to("cpu")
 
+        del latent_model_input
+        gc.collect()
+        torch.cuda.empty_cache()
+
         noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
         noise_pred_cfg = noise_pred_uncond + guidance_scale * (noise_pred_text - noise_pred_uncond)
 
         if guidance_start_step <= i < guidance_end_step and i % guidance_interval == 0:
             with torch.no_grad():
+
+                # # ========== DDIMScheduler ==========
+                # pred_original_sample = scheduler.step(noise_pred_cfg, t, latents).pred_original_sample
+                # # ========== DDIMScheduler End ==========
+
+                # ========== DPMSolverMultistepScheduler ==========
                 # Create temporary scheduler to avoid state corruption
                 temp_scheduler = DPMSolverMultistepScheduler.from_pretrained(model_id, subfolder="scheduler")
                 temp_scheduler.set_timesteps(num_inference_steps)
@@ -378,6 +401,7 @@ def generate_svg_with_guidance(
                 else:
                     # Fallback: use current latents as approximation
                     pred_original_sample = latents
+                # ========== DPMSolverMultistepScheduler End ==========
                 
                 if low_vram_shift_to_cpu and not enable_sequential_cpu_offload: 
                     vae = vae.to(device)
@@ -410,23 +434,26 @@ def generate_svg_with_guidance(
                 
                 clip_loss = 1 - (text_features @ image_features.T).squeeze()
                 
-                # Get progressive guidance configuration
-                guidance_config = get_progressive_guidance_config(i, num_inference_steps)
+                # # Get progressive guidance configuration
+                # guidance_config = get_progressive_guidance_config(i, num_inference_steps)
                 
-                # Apply progressive weights to losses
-                weighted_lpips_loss = guidance_config['lpips_weight'] * loss_lpips_val
-                weighted_mse_loss = guidance_config['mse_weight'] * loss_mse_val
-                weighted_clip_loss = guidance_config['clip_weight'] * clip_loss
+                # # Apply progressive weights to losses
+                # weighted_lpips_loss = guidance_config['lpips_weight'] * loss_lpips_val
+                # weighted_mse_loss = guidance_config['mse_weight'] * loss_mse_val
+                # weighted_clip_loss = guidance_config['clip_weight'] * clip_loss
                 
                 # Calculate final losses
-                reconstruction_loss = weighted_lpips_loss + lpips_mse_lambda * weighted_mse_loss
-                total_loss = reconstruction_loss + clip_guidance_scale * weighted_clip_loss
+                # reconstruction_loss = weighted_lpips_loss + weighted_mse_loss
+                reconstruction_loss = loss_lpips_val + lpips_mse_lambda * loss_mse_val
+                # total_loss = reconstruction_loss + weighted_clip_loss
+                total_loss = reconstruction_loss + clip_guidance_scale * clip_loss
                 
-                # Apply progressive guidance strength
-                progressive_vector_guidance_scale = vector_guidance_scale * guidance_config['guidance_strength']
+                # # Apply progressive guidance strength
+                # progressive_vector_guidance_scale = vector_guidance_scale * guidance_config['guidance_strength']
 
                 grad = noise_pred_text - noise_pred_uncond
-                noise_pred_cfg = noise_pred_cfg + (grad * total_loss.item() * progressive_vector_guidance_scale)
+                # noise_pred_cfg = noise_pred_cfg + (grad * total_loss.item() * progressive_vector_guidance_scale)
+                noise_pred_cfg = noise_pred_cfg + (grad * total_loss.item() * vector_guidance_scale)
 
             gc.collect(); 
             torch.cuda.empty_cache()
@@ -438,11 +465,14 @@ def generate_svg_with_guidance(
         else:
             latents = step_result
 
+    # --- Final Generation (Preserved) ---
     with torch.no_grad():
-        if low_vram_shift_to_cpu and not enable_sequential_cpu_offload: vae = vae.to(device)
+        if low_vram_shift_to_cpu and not enable_sequential_cpu_offload: 
+            vae = vae.to(device)
         latents = 1 / vae.config.scaling_factor * latents
         image_tensor = vae.decode(latents).sample
-        if low_vram_shift_to_cpu and not enable_sequential_cpu_offload: vae = vae.to("cpu")
+        if low_vram_shift_to_cpu and not enable_sequential_cpu_offload: 
+            vae = vae.to("cpu")
 
     image_tensor = (image_tensor.cpu() / 2 + 0.5).clamp(0, 1)
     image_np = (image_tensor.squeeze(0).permute(1, 2, 0).float().numpy() * 255).astype(np.uint8)
@@ -486,9 +516,9 @@ prompt = (
     "geometric style, flat color blocks, minimal details, no complex details"
 )
 
+# "lines, framing, hatching, background, patterns, outlines, "
 negative_prompt = (
     "photo, realistic, 3d, noisy, textures, blurry, shadow, "
-    "lines, framing, hatching, background, patterns, outlines, "
     "gradient, complex details, patterns, stripes, dots, "
     "repetitive elements, small details, intricate designs, "
     "busy composition, cluttered"
@@ -503,17 +533,17 @@ img, svg = generate_svg_with_guidance(
     description=description,
     device=device,
     # --- Strength parameter for blending structured and random noise ---
-    strength=0.9, # 1.0 is pure noise, 0.0 is pure structure
+    strength=1.0, # 1.0 is pure noise, 0.0 is pure structure
     num_inference_steps=15,
-    guidance_scale=8.0,
-    vector_guidance_scale=2.0,
+    guidance_scale=20,
+    vector_guidance_scale=4.5,
     # ToDo: parameter adjustment
-    lpips_mse_lambda=1.0, # now 1.0 since gradualy changed clip-weight 
-    clip_guidance_scale=1.0, # now 1.0 since gradualy changed clip-weight 
+    lpips_mse_lambda=0.1, 
+    clip_guidance_scale=0.0, 
     # ToDo-End: parameter adjustment
     guidance_start_step=0,
     guidance_end_step=15,
-    guidance_resolution=256,
+    guidance_resolution=1024,
     guidance_interval=1,
     seed=42,
     use_half_precision=True,
