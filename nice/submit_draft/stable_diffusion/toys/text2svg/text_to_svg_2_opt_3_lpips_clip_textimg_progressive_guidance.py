@@ -177,32 +177,43 @@ def get_progressive_guidance_config(current_step: int, total_steps: int) -> dict
     Returns:
         Dictionary containing guidance weights for current stage
     """
+    # progress = current_step / total_steps
+    
+    # # Early stage (0-30%): Focus on semantic structure
+    # if progress < 0.3:
+    #     return {
+    #         'clip_weight': 1.0,      # Semantic matching is most important
+    #         'lpips_weight': 0.3,     # Lower perceptual loss
+    #         'mse_weight': 0.1,       # Lowest MSE
+    #         'guidance_strength': 0.8  # Strong guidance
+    #     }
+    # # Middle stage (30-70%): Balance perceptual quality
+    # elif progress < 0.7:
+    #     return {
+    #         'clip_weight': 0.7,      # Maintain semantic
+    #         'lpips_weight': 0.8,     # Improve perceptual quality
+    #         'mse_weight': 0.3,       # Moderate MSE
+    #         'guidance_strength': 0.6  # Medium guidance
+    #     }
+    # # Late stage (70-100%): Detail refinement
+    # else:
+    #     return {
+    #         'clip_weight': 0.5,      # Lower semantic weight
+    #         'lpips_weight': 1.0,     # Highest perceptual loss
+    #         'mse_weight': 0.5,       # Detail optimization
+    #         'guidance_strength': 0.4  # Light guidance
+    #     }
+    
     progress = current_step / total_steps
     
-    # Early stage (0-30%): Focus on semantic structure
-    if progress < 0.3:
-        return {
-            'clip_weight': 1.0,      # Semantic matching is most important
-            'lpips_weight': 0.3,     # Lower perceptual loss
-            'mse_weight': 0.1,       # Lowest MSE
-            'guidance_strength': 0.8  # Strong guidance
-        }
-    # Middle stage (30-70%): Balance perceptual quality
-    elif progress < 0.7:
-        return {
-            'clip_weight': 0.7,      # Maintain semantic
-            'lpips_weight': 0.8,     # Improve perceptual quality
-            'mse_weight': 0.3,       # Moderate MSE
-            'guidance_strength': 0.6  # Medium guidance
-        }
-    # Late stage (70-100%): Detail refinement
+    if progress < 0.2:
+        current_clip_scale = 0.05 
+    elif progress < 0.8:
+        current_clip_scale = np.sin((progress - 0.2) / 0.6 * np.pi) 
     else:
-        return {
-            'clip_weight': 0.5,      # Lower semantic weight
-            'lpips_weight': 1.0,     # Highest perceptual loss
-            'mse_weight': 0.5,       # Detail optimization
-            'guidance_strength': 0.4  # Light guidance
-        }
+        current_clip_scale = 0.2
+        
+    return {'clip_weight': current_clip_scale}
 
 
 def generate_svg_with_guidance(
@@ -435,18 +446,18 @@ def generate_svg_with_guidance(
                 clip_loss = 1 - (text_features @ image_features.T).squeeze()
                 
                 # # Get progressive guidance configuration
-                # guidance_config = get_progressive_guidance_config(i, num_inference_steps)
+                guidance_config = get_progressive_guidance_config(i, num_inference_steps)
                 
                 # # Apply progressive weights to losses
                 # weighted_lpips_loss = guidance_config['lpips_weight'] * loss_lpips_val
                 # weighted_mse_loss = guidance_config['mse_weight'] * loss_mse_val
-                # weighted_clip_loss = guidance_config['clip_weight'] * clip_loss
+                weighted_clip_loss = guidance_config['clip_weight'] * clip_loss
                 
                 # Calculate final losses
                 # reconstruction_loss = weighted_lpips_loss + weighted_mse_loss
                 reconstruction_loss = loss_lpips_val + lpips_mse_lambda * loss_mse_val
-                # total_loss = reconstruction_loss + weighted_clip_loss
-                total_loss = reconstruction_loss + clip_guidance_scale * clip_loss
+                total_loss = reconstruction_loss + clip_guidance_scale * weighted_clip_loss
+                # total_loss = reconstruction_loss + clip_guidance_scale * clip_loss
                 
                 # # Apply progressive guidance strength
                 # progressive_vector_guidance_scale = vector_guidance_scale * guidance_config['guidance_strength']
