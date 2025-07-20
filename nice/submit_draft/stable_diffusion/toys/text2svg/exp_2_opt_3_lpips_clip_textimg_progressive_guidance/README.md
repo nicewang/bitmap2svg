@@ -1,8 +1,9 @@
 ### Exp-1
 Param:
-```Python
-# No Progressive Guidance
 
+- No Progressive Guidance
+
+```Python
 prompt = (
     f"clean classic vector illustration of {description}, "
     "flat design, solid colors only, minimalist, simple shapes, "
@@ -44,6 +45,7 @@ img, svg = generate_svg_with_guidance(
     low_vram_shift_to_cpu=False
 )
 ```
+
 ```
 clip_guidance_scale: 0.0
 score: 0.5389758799109624
@@ -68,6 +70,7 @@ score: 0.49924003005101464
 clip_guidance_scale: 0.99
 score: 0.516175245000283
 ```
+
 ```Python
 import matplotlib.pyplot as plt
 
@@ -82,4 +85,48 @@ plt.ylabel("score")
 
 plt.show()
 ```
+
 ![exp-1](exp_1.png)
+
+### Exp-2
+Param:
+
+```Python
+def get_progressive_guidance_config(current_step: int, total_steps: int) -> dict:
+    
+    progress = current_step / total_steps
+    
+    if progress < 0.15:
+        current_clip_scale = 0.0
+        
+    elif progress < 0.50:
+        current_clip_scale = (progress - 0.15) / (0.50 - 0.15)
+        
+    elif progress < 0.90:
+        progress_in_decay = (progress - 0.50) / (0.90 - 0.50)
+        current_clip_scale = 0.5 * (1 + np.cos(np.pi * progress_in_decay))
+        
+    else:
+        current_clip_scale = 0.0
+        
+    return {'clip_weight': current_clip_scale}
+```
+
+```
+clip_guidance_scale: 2.0
+score: 0.5340815041469475
+clip_guidance_scale: 1.75
+score: 0.5056460312888853
+clip_guidance_scale: 1.5
+score: 0.5561520871238944
+clip_guidance_scale: 1.25
+score: 0.523435648367369
+clip_guidance_scale: 1.0 
+score: 0.539850
+clip_guidance_scale: 0.9
+score: 0.5164388817232468
+clip_guidance_scale: 0.8
+score: 0.496268
+clip_guidance_scale: 0.75
+score: 0.5269537721773204
+```

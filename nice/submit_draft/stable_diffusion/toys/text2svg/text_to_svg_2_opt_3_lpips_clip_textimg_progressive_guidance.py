@@ -166,55 +166,73 @@ def create_latents_from_embedding(embedding: torch.Tensor, target_shape: tuple, 
     return latent
 
 
+# def get_progressive_guidance_config(current_step: int, total_steps: int) -> dict:
+#     """
+#     Get progressive guidance configuration based on current step.
+    
+#     Args:
+#         current_step: Current denoising step
+#         total_steps: Total number of inference steps
+    
+#     Returns:
+#         Dictionary containing guidance weights for current stage
+#     """
+#     # progress = current_step / total_steps
+    
+#     # # Early stage (0-30%): Focus on semantic structure
+#     # if progress < 0.3:
+#     #     return {
+#     #         'clip_weight': 1.0,      # Semantic matching is most important
+#     #         'lpips_weight': 0.3,     # Lower perceptual loss
+#     #         'mse_weight': 0.1,       # Lowest MSE
+#     #         'guidance_strength': 0.8  # Strong guidance
+#     #     }
+#     # # Middle stage (30-70%): Balance perceptual quality
+#     # elif progress < 0.7:
+#     #     return {
+#     #         'clip_weight': 0.7,      # Maintain semantic
+#     #         'lpips_weight': 0.8,     # Improve perceptual quality
+#     #         'mse_weight': 0.3,       # Moderate MSE
+#     #         'guidance_strength': 0.6  # Medium guidance
+#     #     }
+#     # # Late stage (70-100%): Detail refinement
+#     # else:
+#     #     return {
+#     #         'clip_weight': 0.5,      # Lower semantic weight
+#     #         'lpips_weight': 1.0,     # Highest perceptual loss
+#     #         'mse_weight': 0.5,       # Detail optimization
+#     #         'guidance_strength': 0.4  # Light guidance
+#     #     }
+    
+#     progress = current_step / total_steps
+    
+#     if progress < 0.2:
+#         current_clip_scale = 0.05 
+#     elif progress < 0.8:
+#         current_clip_scale = np.sin((progress - 0.2) / 0.6 * np.pi) 
+#     else:
+#         current_clip_scale = 0.2
+        
+#     return {'clip_weight': current_clip_scale}
+
 def get_progressive_guidance_config(current_step: int, total_steps: int) -> dict:
-    """
-    Get progressive guidance configuration based on current step.
-    
-    Args:
-        current_step: Current denoising step
-        total_steps: Total number of inference steps
-    
-    Returns:
-        Dictionary containing guidance weights for current stage
-    """
-    # progress = current_step / total_steps
-    
-    # # Early stage (0-30%): Focus on semantic structure
-    # if progress < 0.3:
-    #     return {
-    #         'clip_weight': 1.0,      # Semantic matching is most important
-    #         'lpips_weight': 0.3,     # Lower perceptual loss
-    #         'mse_weight': 0.1,       # Lowest MSE
-    #         'guidance_strength': 0.8  # Strong guidance
-    #     }
-    # # Middle stage (30-70%): Balance perceptual quality
-    # elif progress < 0.7:
-    #     return {
-    #         'clip_weight': 0.7,      # Maintain semantic
-    #         'lpips_weight': 0.8,     # Improve perceptual quality
-    #         'mse_weight': 0.3,       # Moderate MSE
-    #         'guidance_strength': 0.6  # Medium guidance
-    #     }
-    # # Late stage (70-100%): Detail refinement
-    # else:
-    #     return {
-    #         'clip_weight': 0.5,      # Lower semantic weight
-    #         'lpips_weight': 1.0,     # Highest perceptual loss
-    #         'mse_weight': 0.5,       # Detail optimization
-    #         'guidance_strength': 0.4  # Light guidance
-    #     }
     
     progress = current_step / total_steps
     
-    if progress < 0.2:
-        current_clip_scale = 0.05 
-    elif progress < 0.8:
-        current_clip_scale = np.sin((progress - 0.2) / 0.6 * np.pi) 
+    if progress < 0.15:
+        current_clip_scale = 0.0
+        
+    elif progress < 0.50:
+        current_clip_scale = (progress - 0.15) / (0.50 - 0.15)
+        
+    elif progress < 0.90:
+        progress_in_decay = (progress - 0.50) / (0.90 - 0.50)
+        current_clip_scale = 0.5 * (1 + np.cos(np.pi * progress_in_decay))
+        
     else:
-        current_clip_scale = 0.2
+        current_clip_scale = 0.0
         
     return {'clip_weight': current_clip_scale}
-
 
 def generate_svg_with_guidance(
     prompt: str,
