@@ -28,6 +28,8 @@ import bitmap2svg
 
 import logging
 
+from torchvision import transforms
+
 # print("Downloading Stable Diffusion model from Kaggle Hub...")
 stable_diffusion_path = kagglehub.model_download("stabilityai/stable-diffusion-v2/pytorch/1/1")
 # print("Model download complete.")
@@ -456,7 +458,19 @@ def generate_svg_with_guidance(
                 loss_lpips_val = loss_fn_lpips(target_image_gpu.float(), rendered_svg_gpu.float()).mean()
                 loss_mse_val = F.mse_loss(target_image_gpu, rendered_svg_gpu)
 
-                clip_image_input = clip_processor(images=rendered_svg_tensor, return_tensors="pt").to(guidance_device)
+                soften_augment_transforms = transforms.Compose([
+                    transforms.RandomAffine(degrees=5, translate=(0.05, 0.05), scale=(0.95, 1.05)),
+                    transforms.GaussianBlur(kernel_size=5, sigma=(0.1, 1.5)),
+                ])
+
+                softened_svg_for_clip = soften_augment_transforms(rendered_svg_tensor)
+
+                noise_level = 0.03 
+                noise = torch.randn_like(softened_svg_for_clip) * noise_level
+                softened_svg_for_clip = (softened_svg_for_clip + noise).clamp(0, 1)
+
+                clip_image_input = clip_processor(images=softened_svg_for_clip.to(guidance_device), return_tensors="pt").to(guidance_device)
+                # clip_image_input = clip_processor(images=rendered_svg_tensor, return_tensors="pt").to(guidance_device)
                 
                 image_features = clip_model.get_image_features(**clip_image_input)
                 image_features = image_features / image_features.norm(p=2, dim=-1, keepdim=True)
