@@ -130,3 +130,36 @@ score: 0.496268
 clip_guidance_scale: 0.75
 score: 0.5269537721773204
 ```
+
+### Exp-3
+Param:
+
+```Python
+soften_augment_transforms = transforms.Compose([
+    transforms.RandomAffine(degrees=5, translate=(0.05, 0.05), scale=(0.95, 1.05)),
+    transforms.GaussianBlur(kernel_size=5, sigma=(0.1, 1.5)),
+])
+
+softened_svg_for_clip = soften_augment_transforms(rendered_svg_tensor)
+
+noise_level = 0.03 
+noise = torch.randn_like(softened_svg_for_clip) * noise_level
+softened_svg_for_clip = (softened_svg_for_clip + noise).clamp(0, 1)
+
+clip_image_input = clip_processor(images=softened_svg_for_clip.to(guidance_device), return_tensors="pt").to(guidance_device)
+```
+
+```
+clip_guidance_scale: 1.2
+score: 0.5373669282633808
+clip_guidance_scale: 1.1
+score: 0.5503305679653343
+clip_guidance_scale: 1.05
+score: 0.5331958366985344
+clip_guidance_scale: 1.0 
+score: 0.547210581620149
+clip_guidance_scale: 0.9
+score: 0.5192569744535819
+clip_guidance_scale: 0.8
+score: 0.5428703067257127
+```

@@ -460,12 +460,14 @@ def generate_svg_with_guidance(
 
                 soften_augment_transforms = transforms.Compose([
                     transforms.RandomAffine(degrees=5, translate=(0.05, 0.05), scale=(0.95, 1.05)),
+                    # transforms.RandomAffine(degrees=2, translate=(0.02, 0.02), scale=(0.98, 1.02)),
                     transforms.GaussianBlur(kernel_size=5, sigma=(0.1, 1.5)),
                 ])
 
                 softened_svg_for_clip = soften_augment_transforms(rendered_svg_tensor)
 
                 noise_level = 0.03 
+                # noise_level = 0.02
                 noise = torch.randn_like(softened_svg_for_clip) * noise_level
                 softened_svg_for_clip = (softened_svg_for_clip + noise).clamp(0, 1)
 
