@@ -8,7 +8,7 @@
 			2_opt_3, 2_opt_3_perceploss_vgg, [
 			2_opt_3_lpips, 2_opt_3_lpips_2, [
                 2_opt_3_lpips_clip, [
-                    2_opt_3_lpips_clip_textimg,[
+                    2_opt_3_lpips_clip_textimg, [
                         2_opt_3_lpips_clip_textimg_progressive_guidance
                     ]
                 ]
