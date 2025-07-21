@@ -253,6 +253,16 @@ def get_reconstruction_guidance_scale(progress: float, start_scale: float = 0.2,
     current_scale = start_scale + (end_scale - start_scale) * progress
     return current_scale
 
+def get_reconstruction_guidance_scale_v2(progress: float, start_scale: float = 0.1, end_scale: float = 1.2, power: float = 2.0) -> float:
+
+    if progress < 0.0: 
+        progress = 0.0
+    if progress > 1.0: 
+        progress = 1.0
+        
+    current_scale = start_scale + (end_scale - start_scale) * (progress ** power)
+    return current_scale
+
 def get_reconstruction_loss_lambda(progress: float, max_lambda: float = 0.3) -> float:
     
     if progress < 0.5:

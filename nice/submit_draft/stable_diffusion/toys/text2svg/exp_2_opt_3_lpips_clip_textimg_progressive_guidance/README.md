@@ -110,6 +110,7 @@ def get_progressive_guidance_config(current_step: int, total_steps: int) -> dict
         current_clip_scale = 0.0
         
     return {'clip_weight': current_clip_scale}
+
 ```
 
 ```
@@ -179,4 +180,24 @@ def get_reconstruction_loss_lambda(progress: float, max_lambda: float = 0.3) -> 
 
 ```
 score: 0.5550258615055781
+```
+
+### Exp-5
+Param:
+
+```Python
+def get_reconstruction_guidance_scale(progress: float, start_scale: float = 0.2, end_scale: float = 1.0) -> float:
+
+    if progress < 0.0:
+        progress = 0.0
+    if progress > 1.0: 
+        progress = 1.0
+
+    current_scale = start_scale + (end_scale - start_scale) * progress
+    return current_scale
+
+```
+
+```
+score: 0.6040805777150714
 ```
