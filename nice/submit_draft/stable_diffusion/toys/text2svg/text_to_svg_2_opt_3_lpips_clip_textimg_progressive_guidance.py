@@ -233,8 +233,20 @@ def get_progressive_guidance_config(current_step: int, total_steps: int) -> dict
         
     else:
         current_clip_scale = 0.0
+    
+    current_mse_weight = get_reconstruction_loss_lambda(progress)
         
-    return {'clip_weight': current_clip_scale}
+    return {
+        'clip_weight': current_clip_scale,
+        'mse_weight': current_mse_weight
+    }
+
+def get_reconstruction_loss_lambda(progress: float, max_lambda: float = 0.3) -> float:
+    
+    if progress < 0.5:
+        return 0.0
+    else:
+        return max_lambda * ((progress - 0.5) / 0.5)
 
 def generate_svg_with_guidance(
     prompt: str,
@@ -484,12 +496,13 @@ def generate_svg_with_guidance(
                 
                 # # Apply progressive weights to losses
                 # weighted_lpips_loss = guidance_config['lpips_weight'] * loss_lpips_val
-                # weighted_mse_loss = guidance_config['mse_weight'] * loss_mse_val
+                weighted_mse_loss = guidance_config['mse_weight'] * loss_mse_val
                 weighted_clip_loss = guidance_config['clip_weight'] * clip_loss
                 
                 # Calculate final losses
                 # reconstruction_loss = weighted_lpips_loss + weighted_mse_loss
-                reconstruction_loss = loss_lpips_val + lpips_mse_lambda * loss_mse_val
+                # reconstruction_loss = loss_lpips_val + lpips_mse_lambda * loss_mse_val
+                reconstruction_loss = loss_lpips_val + weighted_mse_loss
                 total_loss = reconstruction_loss + clip_guidance_scale * weighted_clip_loss
                 # total_loss = reconstruction_loss + clip_guidance_scale * clip_loss
                 

@@ -163,3 +163,20 @@ score: 0.5192569744535819
 clip_guidance_scale: 0.8
 score: 0.5428703067257127
 ```
+
+### Exp-4
+Param:
+
+```Python
+def get_reconstruction_loss_lambda(progress: float, max_lambda: float = 0.3) -> float:
+    
+    if progress < 0.5:
+        return 0.0
+    else:
+        return max_lambda * ((progress - 0.5) / 0.5)
+
+```
+
+```
+score: 0.5550258615055781
+```
