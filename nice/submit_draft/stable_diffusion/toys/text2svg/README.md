@@ -10,7 +10,8 @@
                 2_opt_3_lpips_clip_textimg,[
                     2_opt_3_lpips_clip_textimg_progressive_guidance
                     ]
-                ]], [
+                ]
+                ], [
 			2_opt_3_lpips_coopt, 2_opt_3_lpips_coopt_differentiable
 			]
 		]
