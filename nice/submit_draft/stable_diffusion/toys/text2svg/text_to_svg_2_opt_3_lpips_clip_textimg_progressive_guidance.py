@@ -270,6 +270,37 @@ def get_reconstruction_loss_lambda(progress: float, max_lambda: float = 0.3) -> 
     else:
         return max_lambda * ((progress - 0.5) / 0.5)
 
+import numpy as np
+
+def get_universal_guidance_configs(t: int, clip_max_scale: float = 1.1) -> dict:
+
+    configs = {
+        'clip_scale': 0.0,
+        'recon_scale': 0.0,
+        'recon_lambda': 0.0,
+    }
+
+    if t > 700:
+        configs['clip_scale'] = 1.0
+        configs['recon_scale'] = 0.2
+        configs['recon_lambda'] = 0.0
+        
+    elif t > 200:
+        progress_in_phase = (700 - t) / 500
+        configs['clip_scale'] = 1.0 - 0.5 * progress_in_phase
+        configs['recon_scale'] = 0.2 + 0.8 * progress_in_phase
+        configs['recon_lambda'] = 0.3 * progress_in_phase
+
+    else:
+        progress_in_phase = (200 - t) / 200
+        configs['clip_scale'] = 0.5 * (1 - progress_in_phase)
+        configs['recon_scale'] = 1.0
+        configs['recon_lambda'] = 0.3
+
+    configs['clip_scale'] *= clip_max_scale
+    
+    return configs
+
 def generate_svg_with_guidance(
     prompt: str,
     negative_prompt: str = "",
@@ -513,27 +544,37 @@ def generate_svg_with_guidance(
                 
                 clip_loss = 1 - (text_features @ image_features.T).squeeze()
                 
-                # # Get progressive guidance configuration
-                guidance_config = get_progressive_guidance_config(i, num_inference_steps)
+                # # # Get progressive guidance configuration
+                # guidance_config = get_progressive_guidance_config(i, num_inference_steps)
                 
-                # # Apply progressive weights to losses
-                # weighted_lpips_loss = guidance_config['lpips_weight'] * loss_lpips_val
-                weighted_mse_loss = guidance_config['mse_weight'] * loss_mse_val
-                weighted_clip_loss = guidance_config['clip_weight'] * clip_loss
+                # # # Apply progressive weights to losses
+                # # weighted_lpips_loss = guidance_config['lpips_weight'] * loss_lpips_val
+                # weighted_mse_loss = guidance_config['mse_weight'] * loss_mse_val
+                # weighted_clip_loss = guidance_config['clip_weight'] * clip_loss
                 
-                # Calculate final losses
-                # reconstruction_loss = weighted_lpips_loss + weighted_mse_loss
-                # reconstruction_loss = loss_lpips_val + lpips_mse_lambda * loss_mse_val
-                reconstruction_loss = guidance_config['reconstruct_weight'] * (loss_lpips_val + weighted_mse_loss)
-                total_loss = reconstruction_loss + clip_guidance_scale * weighted_clip_loss
-                # total_loss = reconstruction_loss + clip_guidance_scale * clip_loss
+                # # Calculate final losses
+                # # reconstruction_loss = weighted_lpips_loss + weighted_mse_loss
+                # # reconstruction_loss = loss_lpips_val + lpips_mse_lambda * loss_mse_val
+                # reconstruction_loss = guidance_config['reconstruct_weight'] * (loss_lpips_val + weighted_mse_loss)
+                # total_loss = reconstruction_loss + clip_guidance_scale * weighted_clip_loss
+                # # total_loss = reconstruction_loss + clip_guidance_scale * clip_loss
                 
-                # # Apply progressive guidance strength
-                # progressive_vector_guidance_scale = vector_guidance_scale * guidance_config['guidance_strength']
+                # # # Apply progressive guidance strength
+                # # progressive_vector_guidance_scale = vector_guidance_scale * guidance_config['guidance_strength']
+
+                guidance_configs = get_universal_guidance_configs(t, clip_max_scale=1.1)
+
+                reconstruction_loss = loss_lpips_val + guidance_configs['recon_lambda'] * loss_mse_val
+                scaled_reconstruction_loss = reconstruction_loss * guidance_configs['recon_scale']
+                
+                clip_loss_term = guidance_configs['clip_scale'] * clip_loss
+
+                total_loss = scaled_reconstruction_loss + clip_loss_term
 
                 grad = noise_pred_text - noise_pred_uncond
                 # noise_pred_cfg = noise_pred_cfg + (grad * total_loss.item() * progressive_vector_guidance_scale)
                 noise_pred_cfg = noise_pred_cfg + (grad * total_loss.item() * vector_guidance_scale)
+
 
             gc.collect(); 
             torch.cuda.empty_cache()
