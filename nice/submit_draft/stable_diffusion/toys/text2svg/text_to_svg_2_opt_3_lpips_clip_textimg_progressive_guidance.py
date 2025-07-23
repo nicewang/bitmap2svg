@@ -1,7 +1,7 @@
 import torch
 import torch.nn.functional as F
 from tqdm.auto import tqdm
-from PIL import Image
+from PIL import Image, ImageOps
 import numpy as np
 import re
 import os
@@ -281,7 +281,7 @@ def get_universal_guidance_configs(t: int, clip_max_scale: float = 1.1) -> dict:
     }
 
     if t > 700:
-        configs['clip_scale'] = 1.0
+        configs['clip_scale'] = 0.9
         configs['recon_scale'] = 0.2
         configs['recon_lambda'] = 0.0
         
@@ -289,13 +289,13 @@ def get_universal_guidance_configs(t: int, clip_max_scale: float = 1.1) -> dict:
         progress_in_phase = (700 - t) / 500
         configs['clip_scale'] = 1.0 - 0.5 * progress_in_phase
         configs['recon_scale'] = 0.2 + 0.8 * progress_in_phase
-        configs['recon_lambda'] = 0.3 * progress_in_phase
+        configs['recon_lambda'] = 0.4 * progress_in_phase
 
     else:
         progress_in_phase = (200 - t) / 200
         configs['clip_scale'] = 0.5 * (1 - progress_in_phase)
         configs['recon_scale'] = 1.0
-        configs['recon_lambda'] = 0.3
+        configs['recon_lambda'] = 0.4
 
     configs['clip_scale'] *= clip_max_scale
     
@@ -327,7 +327,7 @@ def generate_svg_with_guidance(
     low_vram_shift_to_cpu: bool = True
 ):
 
-    model_id = stable_diffusion_path
+    # model_id = stable_diffusion_path
     
     if not (0.0 <= strength <= 1.0):
         raise ValueError(f"Strength must be between 0.0 and 1.0, but got {strength}")
@@ -452,8 +452,8 @@ def generate_svg_with_guidance(
     
     svg_params_guidance = {
         'num_colors': None,
-        'simplification_epsilon_factor': 0.02,
-        'min_contour_area': (guidance_resolution/512)**2 * 30.0,
+        'simplification_epsilon_factor': 0.01,
+        'min_contour_area': (guidance_resolution/512)**2 * 10.0,
         'max_features_to_render': 64
     }
 
@@ -512,7 +512,8 @@ def generate_svg_with_guidance(
                 img_to_vectorize_scaled = (target_image_for_loss / 2 + 0.5).clamp(0, 1)
                 image_np = (img_to_vectorize_scaled.squeeze(0).permute(1, 2, 0).cpu().float().numpy() * 255).astype(np.uint8)
                 pil_image = Image.fromarray(image_np)
-                svg_string = bitmap2svg.bitmap_to_svg(pil_image, **svg_params_guidance)
+                pil_image_posterized = ImageOps.posterize(pil_image, 4)
+                svg_string = bitmap2svg.bitmap_to_svg(pil_image_posterized, **svg_params_guidance)
                 rendered_svg_tensor = parse_svg_and_render(svg_string, pil_image.width, pil_image.height, device)
                 rendered_svg_tensor_scaled = rendered_svg_tensor * 2.0 - 1.0
 
@@ -598,6 +599,7 @@ def generate_svg_with_guidance(
     image_tensor = (image_tensor.cpu() / 2 + 0.5).clamp(0, 1)
     image_np = (image_tensor.squeeze(0).permute(1, 2, 0).float().numpy() * 255).astype(np.uint8)
     final_image = Image.fromarray(image_np)
+    final_image_posterized = ImageOps.posterize(final_image, 4)
 
     final_svg_params = {
         'num_colors': None, 
@@ -605,7 +607,7 @@ def generate_svg_with_guidance(
         'min_contour_area': 0.1, 
         'max_features_to_render': 0
     }
-    final_svg_string = bitmap2svg.bitmap_to_svg(final_image, **final_svg_params)
+    final_svg_string = bitmap2svg.bitmap_to_svg(final_image_posterized, **final_svg_params)
     
     del vae, text_encoder, unet, tokenizer, scheduler, loss_fn_lpips, clip_model, clip_processor
     gc.collect()
@@ -632,16 +634,19 @@ description = "orange corduroy overalls"
 # negative_prompt = "blurry, pixelated, jpeg artifacts, low quality, photorealistic, complex, 3d render, lines, framing, hatching, background, textures, patterns, details, outlines"
 
 prompt = (
-    f"clean classic vector illustration of {description}, "
-    "flat design, solid colors only, minimalist, simple shapes, "
+    f"clean classic vector illustration of {description}, on a light white background, "
+    "edge-to-edge scene, no borders, flat design, solid colors only, minimalist, simple shapes, "
     "geometric style, flat color blocks, minimal details, no complex details"
 )
 
 # "lines, framing, hatching, background, patterns, outlines, "
 negative_prompt = (
     "photo, realistic, 3d, noisy, textures, blurry, shadow, "
+    "framing, border, circle, vignette, cropped, picture-in-picture, "
+    "lines, hatching, background, outlines, "
     "gradient, complex details, patterns, stripes, dots, "
     "repetitive elements, small details, intricate designs, "
+    "photo frame, emblem, logo, contained within a shape, "
     "busy composition, cluttered"
 )
 
