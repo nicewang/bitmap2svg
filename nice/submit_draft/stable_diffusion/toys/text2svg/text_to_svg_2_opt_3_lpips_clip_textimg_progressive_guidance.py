@@ -165,6 +165,11 @@ def create_latents_from_embedding(embedding: torch.Tensor, target_shape: tuple, 
         if channel_std > 1e-8:  # Avoid division by zero
             latent[:, c:c+1, :, :] = (channel - channel_mean) / channel_std
     
+    noise_ratio = 0.95
+    noise = torch.randn_like(latent)
+    # Mix the original structured latent with random noise
+    latent = latent * (1 - noise_ratio) + noise * noise_ratio
+
     return latent
 
 
