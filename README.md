@@ -35,7 +35,7 @@ pip install .
 pip install -q opencv-python scikit-image pillow
 pip install scikit-build-core cmake ninja pybind11
 # then install this lib
-pip install git+https://github.com/Opensource-Nice-Arishi/kaggle_drawing_with_LLMs.git@bitmap2svg
+pip install git+https://github.com/nicewang/bitmap2svg.git
 
 ```
 ## Appendix
@@ -57,10 +57,10 @@ Features (Polygons) Importance Sorting and Filtering:
 
 ## Historical Versions
 - CPU Version:
-    * [v0.2.3](https://github.com/Opensource-Nice-Arishi/kaggle_drawing_with_LLMs/tree/bitmap2svg-v0.2.3)
-    * [v0.2.2](https://github.com/Opensource-Nice-Arishi/kaggle_drawing_with_LLMs/tree/v0.2.2-bitmap2svg) (Tagged)
-    * [v0.2.1](https://github.com/Opensource-Nice-Arishi/kaggle_drawing_with_LLMs/tree/v0.2.1-bitmap2svg) (Tagged)
-    * [v0.1.0](https://github.com/Opensource-Nice-Arishi/kaggle_drawing_with_LLMs/tree/v0.1.0-bitmap2svg) (Tagged)
+    * [v0.2.3](https://github.com/nicewang/bitmap2svg/tree/bitmap2svg-v0.2.3)
+    * [v0.2.2](https://github.com/nicewang/bitmap2svg/tree/v0.2.2-bitmap2svg) (Tagged)
+    * [v0.2.1](https://github.com/nicewang/bitmap2svg/tree/v0.2.1-bitmap2svg) (Tagged)
+    * [v0.1.0](https://github.com/nicewang/bitmap2svg/tree/v0.1.0-bitmap2svg) (Tagged)
 - GPU Verison:
-    * [v0.2.3.2](https://github.com/Opensource-Nice-Arishi/kaggle_drawing_with_LLMs/tree/bitmap2svg-cu-v0.2.3.2)
-    * [v0.2.3.3](https://github.com/Opensource-Nice-Arishi/kaggle_drawing_with_LLMs/tree/bitmap2svg-cu-v0.2.3.3) (Toy Version)
+    * [v0.2.3.2](https://github.com/nicewang/bitmap2svg/tree/bitmap2svg-cu-v0.2.3.2)
+    * [v0.2.3.3](https://github.com/nicewang/bitmap2svg/tree/bitmap2svg-cu-v0.2.3.3) (Toy Version)
