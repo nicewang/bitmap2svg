@@ -1,5 +1,6 @@
 # bitmap2svg
 ## Version: 0.2.5.1
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.18799888.svg)](https://doi.org/10.5281/zenodo.18799888)
 ### 1. Introduction
 A library to convert bitmaps to SVG, using C++ and OpenCV
 
