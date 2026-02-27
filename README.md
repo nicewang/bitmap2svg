@@ -64,3 +64,15 @@ Features (Polygons) Importance Sorting and Filtering:
 - GPU Verison:
     * [v0.2.3.2](https://github.com/nicewang/bitmap2svg/tree/bitmap2svg-cu-v0.2.3.2)
     * [v0.2.3.3](https://github.com/nicewang/bitmap2svg/tree/bitmap2svg-cu-v0.2.3.3) (Toy Version)
+
+## Citation
+```BibTex
+@misc{bitmap2svg,
+  author       = {Xiaonan (Nice) Wang},
+  title        = {Bitmap2SVG: A library to convert bitmaps to SVG using C++ and OpenCV},
+  howpublished = {\url{https://github.com/nicewang/bitmap2svg}},
+  note         = {Accessed: 2026-02-27},
+  year         = {2026},
+  doi          = {10.5281/zenodo.18799889}
+}
+```
